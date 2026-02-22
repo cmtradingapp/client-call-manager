@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import calls, clients
+from app.routers import calls, clients, filters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ app.add_middleware(
 
 app.include_router(clients.router, prefix="/api")
 app.include_router(calls.router, prefix="/api")
+app.include_router(filters.router, prefix="/api")
 
 
 @app.get("/health")

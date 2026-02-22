@@ -1,12 +1,26 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
+import { getCountries, getStatuses } from '../api/client';
 import { useClientSearch } from '../hooks/useClientSearch';
 import { useAppStore } from '../store/useAppStore';
-import type { ClientStatus } from '../types';
+import type { Country, SalesStatus } from '../types';
+
+const LANGUAGES = [
+  { code: 'EN', label: 'English' },
+  { code: 'ES', label: 'Spanish' },
+  { code: 'AR', label: 'Arabic' },
+];
 
 export function FilterPanel() {
   const { filters, setFilters, resetFilters, isSearching } = useAppStore();
   const { search } = useClientSearch();
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [statuses, setStatuses] = useState<SalesStatus[]>([]);
+
+  useEffect(() => {
+    getCountries().then(setCountries).catch(() => {});
+    getStatuses().then(setStatuses).catch(() => {});
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,49 +62,144 @@ export function FilterPanel() {
           />
         </div>
 
-        {/* Status */}
+        {/* Sales Status */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Status
           </label>
           <select
-            value={filters.status ?? ''}
+            value={filters.sales_status ?? ''}
             onChange={(e) =>
-              setFilters({ status: (e.target.value as ClientStatus) || undefined })
+              setFilters({ sales_status: e.target.value ? Number(e.target.value) : undefined })
             }
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="pending">Pending</option>
+            <option value="">All Statuses</option>
+            {statuses.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.value}
+              </option>
+            ))}
           </select>
         </div>
 
-        {/* Region */}
+        {/* Country */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Region
+            Country
           </label>
-          <input
-            type="text"
-            placeholder="e.g. northeast"
+          <select
             value={filters.region ?? ''}
             onChange={(e) =>
               setFilters({ region: e.target.value || undefined })
             }
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          >
+            <option value="">All Countries</option>
+            {countries.map((c) => (
+              <option key={c.iso2code} value={c.iso2code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Language */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Language
+          </label>
+          <select
+            value={filters.language ?? ''}
+            onChange={(e) =>
+              setFilters({ language: e.target.value || undefined })
+            }
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Languages</option>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* FTD */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            FTD
+          </label>
+          <select
+            value={filters.ftd ?? ''}
+            onChange={(e) =>
+              setFilters({ ftd: e.target.value || undefined })
+            }
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        {/* Live */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Live
+          </label>
+          <select
+            value={filters.live ?? ''}
+            onChange={(e) =>
+              setFilters({ live: e.target.value || undefined })
+            }
+            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        {/* Client Potential */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Client Potential
+          </label>
+          <div className="flex gap-2">
+            <select
+              value={filters.sales_client_potential_op ?? 'eq'}
+              onChange={(e) => setFilters({ sales_client_potential_op: e.target.value })}
+              className="w-28 border border-gray-300 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="eq">= Equal</option>
+              <option value="gt">&gt; Greater</option>
+              <option value="gte">≥ Greater =</option>
+              <option value="lt">&lt; Less</option>
+              <option value="lte">≤ Less =</option>
+            </select>
+            <input
+              type="number"
+              placeholder="e.g. 3"
+              value={filters.sales_client_potential ?? ''}
+              onChange={(e) =>
+                setFilters({
+                  sales_client_potential: e.target.value ? Number(e.target.value) : undefined,
+                })
+              }
+              className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         </div>
 
         {/* Custom Field */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Custom Field
+            Search
           </label>
           <input
             type="text"
-            placeholder="Search custom field…"
+            placeholder="Search name or email…"
             value={filters.custom_field ?? ''}
             onChange={(e) =>
               setFilters({ custom_field: e.target.value || undefined })

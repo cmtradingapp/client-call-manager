@@ -14,9 +14,9 @@ class Settings(BaseSettings):
     mssql_password: str = ""
     mssql_driver: str = "ODBC Driver 18 for SQL Server"
 
-    # Internal REST API — required when mock_mode=False
-    internal_api_base_url: str = "http://internal-api"
-    internal_api_key: str = ""
+    # CRM API — used to fetch phone numbers per client
+    crm_api_base_url: str = "https://apicrm.cmtrading.com/SignalsCRM"
+    crm_api_token: str = ""
 
     # ElevenLabs — required when mock_mode=False
     elevenlabs_api_key: str = ""

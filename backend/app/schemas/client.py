@@ -1,22 +1,20 @@
 from datetime import date
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel
 
 
-class ClientStatus(str, Enum):
-    active = "active"
-    inactive = "inactive"
-    pending = "pending"
-
-
 class FilterParams(BaseModel):
     date_from: Optional[date] = None
     date_to: Optional[date] = None
-    status: Optional[ClientStatus] = None
+    sales_status: Optional[int] = None
     region: Optional[str] = None
     custom_field: Optional[str] = None
+    sales_client_potential: Optional[int] = None
+    sales_client_potential_op: Optional[str] = None  # eq, gt, gte, lt, lte
+    language: Optional[str] = None
+    live: Optional[str] = None  # "yes" = birth_date IS NOT NULL, "no" = birth_date IS NULL
+    ftd: Optional[str] = None   # "yes" = client_qualification_date IS NOT NULL, "no" = IS NULL
 
 
 class ClientSummary(BaseModel):
@@ -33,6 +31,8 @@ class ClientDetail(BaseModel):
     status: str
     region: Optional[str] = None
     created_at: Optional[str] = None
-    phone_number: str
+    phone_number: Optional[str] = None
     email: Optional[str] = None
     account_manager: Optional[str] = None
+    sales_client_potential: Optional[int] = None
+    language: Optional[str] = None

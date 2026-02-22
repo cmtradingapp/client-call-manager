@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import type { CallResponse, ClientDetail, FilterParams } from '../types';
+import type { CallResponse, ClientDetail, Country, FilterParams, SalesStatus } from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -12,6 +12,16 @@ export async function getClients(filters: FilterParams): Promise<ClientDetail[]>
     Object.entries(filters).filter(([, v]) => v !== undefined && v !== '')
   );
   const response = await api.get<ClientDetail[]>('/clients', { params });
+  return response.data;
+}
+
+export async function getCountries(): Promise<Country[]> {
+  const response = await api.get<Country[]>('/filters/countries');
+  return response.data;
+}
+
+export async function getStatuses(): Promise<SalesStatus[]> {
+  const response = await api.get<SalesStatus[]>('/filters/statuses');
   return response.data;
 }
 

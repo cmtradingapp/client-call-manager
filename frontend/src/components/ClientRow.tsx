@@ -72,7 +72,11 @@ export function ClientRow({ client, selected, callStatus, onToggle }: ClientRowP
         <StatusBadge status={client.status} />
       </td>
       <td className="px-4 py-3 text-sm text-gray-600">{client.region ?? '—'}</td>
-      <td className="px-4 py-3 text-sm text-gray-600">{client.phone_number}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">{client.language ?? '—'}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">
+        {client.sales_client_potential ?? '—'}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-600">{client.phone_number ?? '—'}</td>
       <td className="px-4 py-3 text-sm text-gray-600">{client.email ?? '—'}</td>
       <td className="px-4 py-3 text-sm">
         <CallStatusBadge status={callStatus} />

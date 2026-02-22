@@ -4,35 +4,27 @@ from typing import Optional
 import httpx
 
 from app.config import settings
-from app.schemas.client import ClientDetail
 
 logger = logging.getLogger(__name__)
 
 
-async def get_client_details(
-    client: httpx.AsyncClient, client_id: str
-) -> Optional[ClientDetail]:
+async def get_phone_number(client: httpx.AsyncClient, client_id: str) -> Optional[str]:
+    """Fetch fullTelephone for a client from the CRM API."""
     if settings.mock_mode:
-        from app.services.mock_data import get_mock_client
-        return get_mock_client(client_id)
+        return None
 
     try:
         response = await client.get(
-            f"{settings.internal_api_base_url}/clients/{client_id}",
-            headers={"Authorization": f"Bearer {settings.internal_api_key}"},
+            f"{settings.crm_api_base_url}//crm-api/user",
+            params={"id": client_id},
+            headers={"x-crm-api-token": settings.crm_api_token},
+            timeout=10.0,
         )
         response.raise_for_status()
         data = response.json()
-        return ClientDetail(
-            client_id=data.get("client_id", client_id),
-            name=data.get("name", ""),
-            status=data.get("status", ""),
-            region=data.get("region"),
-            created_at=data.get("created_at"),
-            phone_number=data.get("phone_number", ""),
-            email=data.get("email"),
-            account_manager=data.get("account_manager"),
-        )
+        result = data.get("result") if isinstance(data, dict) else None
+        phone = result.get("fullTelephone") if isinstance(result, dict) else None
+        return phone or None
     except Exception as e:
-        logger.error(f"Failed to fetch details for client {client_id}: {e}")
+        logger.warning("CRM API failed for client %s: %s", client_id, e)
         return None

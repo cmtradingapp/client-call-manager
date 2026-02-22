@@ -67,7 +67,7 @@ export function ClientTable() {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
               </th>
-              {['ID', 'Name', 'Status', 'Region', 'Phone', 'Email', 'Call Status'].map(
+              {['ID', 'Name', 'Status', 'Country', 'Language', 'Potential', 'Phone', 'Email', 'Call Status'].map(
                 (h) => (
                   <th
                     key={h}
