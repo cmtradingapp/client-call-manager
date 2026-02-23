@@ -1,5 +1,6 @@
 import logging
 import ssl
+from urllib.parse import quote_plus
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -12,8 +13,9 @@ _ReplicaSession = None
 
 
 def _build_replica_url() -> str:
+    password = quote_plus(settings.replica_db_password)
     return (
-        f"postgresql+asyncpg://{settings.replica_db_user}:{settings.replica_db_password}"
+        f"postgresql+asyncpg://{settings.replica_db_user}:{password}"
         f"@{settings.replica_db_host}:{settings.replica_db_port}/{settings.replica_db_name}"
     )
 
