@@ -6,6 +6,7 @@ import { BatchCallPage } from './pages/BatchCallPage';
 import { CallHistoryPage } from './pages/CallHistoryPage';
 import { CallManagerPage } from './pages/CallManagerPage';
 import { LoginPage } from './pages/LoginPage';
+import { RetentionFieldsPage } from './pages/RetentionFieldsPage';
 import { RetentionPage } from './pages/RetentionPage';
 import { RetentionTasksPage } from './pages/RetentionTasksPage';
 import { RolesPage } from './pages/admin/RolesPage';
@@ -31,6 +32,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/retention', label: 'Retention Manager', permission: 'retention' },
       { to: '/retention-tasks', label: 'Retention Tasks', permission: 'retention-tasks' },
+      { to: '/retention-fields', label: 'Retention Fields', permission: 'retention-fields' },
     ],
   },
   {
@@ -49,6 +51,7 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
   { path: '/batch-call', title: 'Batch Call from File', element: <BatchCallPage />, permission: 'batch-call' },
   { path: '/retention', title: 'Retention Manager', element: <RetentionPage />, permission: 'retention' },
   { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage />, permission: 'retention-tasks' },
+  { path: '/retention-fields', title: 'Retention Fields', element: <RetentionFieldsPage />, permission: 'retention-fields' },
   { path: '/admin/users', title: 'Users', element: <UsersPage />, adminOnly: true },
   { path: '/admin/roles', title: 'Roles', element: <RolesPage />, adminOnly: true },
 ];
