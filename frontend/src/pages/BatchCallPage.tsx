@@ -56,6 +56,9 @@ export function BatchCallPage() {
   const [calling, setCalling] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const cancelRef = useRef(false);
+
+  const stopUpload = () => { cancelRef.current = true; };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,6 +67,7 @@ export function BatchCallPage() {
     setClients([]);
     setSummary(null);
     setProgress(null);
+    cancelRef.current = false;
 
     const text = await file.text();
     const parsed = parseCSV(text);
@@ -79,6 +83,7 @@ export function BatchCallPage() {
     const allEnriched: BatchClient[] = [];
     try {
       for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
+        if (cancelRef.current) break;
         const chunk = parsed.slice(i, i + BATCH_SIZE);
         const res = await api.post('/clients/lookup', { clients: chunk });
         const enriched: BatchClient[] = res.data.map((r: any) => ({
@@ -93,11 +98,13 @@ export function BatchCallPage() {
         setClients([...allEnriched]);
         setProgress({ current: Math.min(i + BATCH_SIZE, parsed.length), total: parsed.length });
       }
-      setSummary({
-        total: allEnriched.length,
-        ready: allEnriched.filter((c) => c.phone).length,
-        errors: allEnriched.filter((c) => !c.phone).length,
-      });
+      if (allEnriched.length > 0) {
+        setSummary({
+          total: allEnriched.length,
+          ready: allEnriched.filter((c) => c.phone).length,
+          errors: allEnriched.filter((c) => !c.phone).length,
+        });
+      }
     } catch {
       setUploadError('Failed to look up clients from CRM');
     } finally {
@@ -227,9 +234,17 @@ export function BatchCallPage() {
                 <span className="text-xs text-blue-700 font-medium">
                   Looking up clients in CRM… {progress.current} / {progress.total}
                 </span>
-                <span className="text-xs text-blue-600">
-                  {Math.round((progress.current / progress.total) * 100)}%
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-blue-600">
+                    {Math.round((progress.current / progress.total) * 100)}%
+                  </span>
+                  <button
+                    onClick={stopUpload}
+                    className="px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                  >
+                    Stop
+                  </button>
+                </div>
               </div>
               <div className="w-full bg-blue-200 rounded-full h-1.5">
                 <div
@@ -241,9 +256,9 @@ export function BatchCallPage() {
           )}
 
           {clients.length > 0 && (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-96">
               <table className="w-full">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     {['ID', 'First Name', 'Email', 'Phone', 'Status'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
