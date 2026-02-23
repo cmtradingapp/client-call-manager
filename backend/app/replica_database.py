@@ -1,4 +1,5 @@
 import logging
+import ssl
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -23,7 +24,13 @@ def init_replica() -> None:
         logger.warning("Replica DB not configured — skipping")
         return
     try:
-        _replica_engine = create_async_engine(_build_replica_url(), echo=False, pool_pre_ping=True)
+        if settings.replica_db_ssl:
+            ssl_ctx = ssl.create_default_context(cafile="/app/certs/ca.crt")
+            ssl_ctx.load_cert_chain("/app/certs/client.crt", "/app/certs/client.key")
+            connect_args = {"ssl": ssl_ctx}
+        else:
+            connect_args = {}
+        _replica_engine = create_async_engine(_build_replica_url(), echo=False, pool_pre_ping=True, connect_args=connect_args)
         _ReplicaSession = async_sessionmaker(_replica_engine, expire_on_commit=False)
         logger.info("Replica DB engine initialised (%s:%s/%s)", settings.replica_db_host, settings.replica_db_port, settings.replica_db_name)
     except Exception as e:

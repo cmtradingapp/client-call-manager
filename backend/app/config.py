@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     replica_db_name: str = ""
     replica_db_user: str = ""
     replica_db_password: str = ""
+    replica_db_ssl: bool = False
 
     # CORS
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost"]

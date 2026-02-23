@@ -3,6 +3,9 @@ backend/.env
 frontend/.env
 frontend/.env.local
 
+# SSL certificates — never commit to git
+backend/certs/
+
 # Python
 __pycache__/
 **/__pycache__/
