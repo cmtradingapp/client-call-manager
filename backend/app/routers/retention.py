@@ -12,12 +12,12 @@ _DATA_QUERY = """
         a.accountid,
         COUNT(t.ticket) AS trade_count
     FROM report.ant_acc a
-    INNER JOIN report.vtiger_trading_accounts vta
-        ON vta.vtigeraccountid = a.vtigeraccountid
-    INNER JOIN report.dealio_mt4trades t
+    LEFT JOIN report.vtiger_trading_accounts vta
+        ON a.accountid = vta.vtigeraccountid
+    LEFT JOIN report.dealio_mt4trades t
         ON t.login = vta.login
+        AND t.cmd IN (0, 1)
     WHERE a.client_qualification_time IS NOT NULL
-      AND t.cmd IN (0, 1)
     GROUP BY a.accountid
     ORDER BY a.accountid
     OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
@@ -26,12 +26,7 @@ _DATA_QUERY = """
 _COUNT_QUERY = """
     SELECT COUNT(DISTINCT a.accountid)
     FROM report.ant_acc a
-    INNER JOIN report.vtiger_trading_accounts vta
-        ON vta.vtigeraccountid = a.vtigeraccountid
-    INNER JOIN report.dealio_mt4trades t
-        ON t.login = vta.login
     WHERE a.client_qualification_time IS NOT NULL
-      AND t.cmd IN (0, 1)
 """
 
 
