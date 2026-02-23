@@ -20,6 +20,7 @@ interface BatchClient {
   phone?: string;
   error?: string;
   callStatus: CallStatus;
+  callError?: string;
 }
 
 interface Summary {
@@ -54,11 +55,14 @@ export function BatchCallPage() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [calling, setCalling] = useState(false);
+  const [callProgress, setCallProgress] = useState<{ current: number; total: number } | null>(null);
   const [uploadError, setUploadError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const cancelRef = useRef(false);
+  const callCancelRef = useRef(false);
 
   const stopUpload = () => { cancelRef.current = true; };
+  const stopCalling = () => { callCancelRef.current = true; };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -115,36 +119,48 @@ export function BatchCallPage() {
   };
 
   const callAll = async () => {
-    const readyIds = clients.filter((c) => c.phone && c.callStatus === 'idle').map((c) => c.id);
-    if (readyIds.length === 0) return;
+    const readyClients = clients.filter((c) => c.phone && c.callStatus === 'idle');
+    if (readyClients.length === 0) return;
 
+    callCancelRef.current = false;
     setCalling(true);
-    setClients((prev) =>
-      prev.map((c) => (readyIds.includes(c.id) ? { ...c, callStatus: 'calling' } : c))
-    );
+    setCallProgress({ current: 0, total: readyClients.length });
 
-    try {
-      const response = await initiateCalls(readyIds, agentId, agentPhoneNumberId);
+    for (let i = 0; i < readyClients.length; i++) {
+      if (callCancelRef.current) break;
+      const client = readyClients[i];
+
       setClients((prev) =>
-        prev.map((c) => {
-          const result = response.results.find((r) => r.client_id === c.id);
-          if (!result) return c;
-          return {
+        prev.map((c) => c.id === client.id ? { ...c, callStatus: 'calling' } : c)
+      );
+
+      try {
+        const response = await initiateCalls([client.id], agentId, agentPhoneNumberId);
+        const result = response.results[0];
+        setClients((prev) =>
+          prev.map((c) => c.id === client.id ? {
             ...c,
             callStatus: result.status === 'initiated' ? 'called' : 'failed',
-          };
-        })
-      );
-    } catch {
-      setClients((prev) =>
-        prev.map((c) => (readyIds.includes(c.id) ? { ...c, callStatus: 'failed' } : c))
-      );
-    } finally {
-      setCalling(false);
+            callError: result.error,
+          } : c)
+        );
+      } catch (err: any) {
+        const msg = err?.response?.data?.detail || 'Request failed';
+        setClients((prev) =>
+          prev.map((c) => c.id === client.id ? { ...c, callStatus: 'failed', callError: msg } : c)
+        );
+      }
+
+      setCallProgress({ current: i + 1, total: readyClients.length });
     }
+
+    setCalling(false);
+    setCallProgress(null);
   };
 
   const readyCount = clients.filter((c) => c.phone && c.callStatus === 'idle').length;
+  const calledCount = clients.filter((c) => c.callStatus === 'called').length;
+  const failedCallCount = clients.filter((c) => c.callStatus === 'failed' && c.phone).length;
 
   return (
     <div className="space-y-5">
@@ -211,27 +227,47 @@ export function BatchCallPage() {
       {/* Table */}
       {(clients.length > 0 || loading) && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
             <span className="text-sm text-gray-600">
               {loading && progress
                 ? `${progress.current} of ${progress.total} clients loaded…`
                 : `${clients.length} clients loaded`}
+              {!loading && (calledCount > 0 || failedCallCount > 0) && (
+                <span className="ml-3">
+                  {calledCount > 0 && <span className="text-green-600 font-medium">{calledCount} called</span>}
+                  {calledCount > 0 && failedCallCount > 0 && <span className="text-gray-400 mx-1">·</span>}
+                  {failedCallCount > 0 && <span className="text-red-500 font-medium">{failedCallCount} failed</span>}
+                </span>
+              )}
             </span>
-            {readyCount > 0 && (
-              <button
-                onClick={callAll}
-                disabled={calling}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-70 transition-colors"
-              >
-                {calling && (
-                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                )}
-                {calling ? 'Initiating calls…' : `Call All (${readyCount})`}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {calling && callProgress && (
+                <>
+                  <span className="text-xs text-gray-500">{callProgress.current} / {callProgress.total}</span>
+                  <button
+                    onClick={stopCalling}
+                    className="px-3 py-1.5 bg-red-100 text-red-700 rounded-md text-xs font-medium hover:bg-red-200 transition-colors"
+                  >
+                    Stop
+                  </button>
+                </>
+              )}
+              {readyCount > 0 && (
+                <button
+                  onClick={callAll}
+                  disabled={calling}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-70 transition-colors"
+                >
+                  {calling && (
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  )}
+                  {calling ? 'Calling…' : `Call All (${readyCount})`}
+                </button>
+              )}
+            </div>
           </div>
 
           {loading && progress && (
@@ -296,8 +332,11 @@ export function BatchCallPage() {
                         {c.callStatus === 'called' && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Called ✓</span>
                         )}
-                        {c.callStatus === 'failed' && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Failed</span>
+                        {c.callStatus === 'failed' && c.phone && (
+                          <span className="text-xs text-red-700" title={c.callError}>
+                            <span className="px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-800">Failed</span>
+                            {c.callError && <span className="ml-1 text-red-500">— {c.callError}</span>}
+                          </span>
                         )}
                         {c.callStatus === 'idle' && !c.phone && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">No Phone</span>
