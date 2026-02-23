@@ -18,5 +18,5 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /root/client-call-manager
-            git pull origin main
-            docker compose up --build -d
+            git pull origin master
+            docker compose -f docker-compose.yml up --build -d
