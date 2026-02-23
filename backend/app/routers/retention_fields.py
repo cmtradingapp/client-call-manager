@@ -1,14 +1,15 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import require_admin
 from app.models.retention_field import RetentionField
 from app.pg_database import get_db
+from app.replica_database import _replica_engine
 
 router = APIRouter()
 
@@ -46,6 +47,33 @@ class RetentionFieldOut(BaseModel):
 @router.get("/retention-fields/tables")
 async def get_tables(_: str = Depends(require_admin)) -> List[str]:
     return AVAILABLE_TABLES
+
+
+@router.get("/retention-fields/columns")
+async def get_columns(
+    table: str = Query(...),
+    _: str = Depends(require_admin),
+) -> List[str]:
+    if table not in AVAILABLE_TABLES:
+        raise HTTPException(status_code=400, detail=f"Invalid table: {table}")
+    if _replica_engine is None:
+        raise HTTPException(status_code=503, detail="Replica database is not configured")
+    # Split schema.table
+    parts = table.split(".", 1)
+    schema, table_name = (parts[0], parts[1]) if len(parts) == 2 else ("public", parts[0])
+    try:
+        async with _replica_engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table "
+                    "ORDER BY ordinal_position"
+                ),
+                {"schema": schema, "table": table_name},
+            )
+            return [row[0] for row in result.fetchall()]
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch columns: {e}")
 
 
 @router.get("/retention-fields", response_model=List[RetentionFieldOut])

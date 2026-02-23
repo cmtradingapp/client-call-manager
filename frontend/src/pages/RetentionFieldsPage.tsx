@@ -42,6 +42,58 @@ const emptyForm = {
   column_b: '',
 };
 
+function useTableColumns(table: string) {
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setColumns([]);
+    setError('');
+    setLoading(true);
+    api.get('/retention-fields/columns', { params: { table } })
+      .then((r) => setColumns(r.data))
+      .catch((e) => setError(e.response?.data?.detail || 'Failed to load columns'))
+      .finally(() => setLoading(false));
+  }, [table]);
+
+  return { columns, loading, error };
+}
+
+interface ColumnSelectProps {
+  label: string;
+  table: string;
+  value: string;
+  onChange: (v: string) => void;
+}
+
+function ColumnSelect({ label, table, value, onChange }: ColumnSelectProps) {
+  const { columns, loading, error } = useTableColumns(table);
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-gray-400">{label}</p>
+      {loading ? (
+        <div className="w-40 border border-gray-200 rounded-md px-2 py-1.5 text-sm text-gray-400 bg-gray-50">Loading…</div>
+      ) : error ? (
+        <div className="w-40 border border-red-200 rounded-md px-2 py-1.5 text-xs text-red-500 bg-red-50" title={error}>
+          DB not connected
+        </div>
+      ) : (
+        <select
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-40 border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Select column…</option>
+          {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
 export function RetentionFieldsPage() {
   const [fields, setFields] = useState<RetentionField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,8 +121,8 @@ export function RetentionFieldsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.column_a.trim() || !form.column_b.trim()) {
-      setError('Both column names are required');
+    if (!form.column_a || !form.column_b) {
+      setError('Both columns are required');
       return;
     }
     setSaving(true);
@@ -130,28 +182,25 @@ export function RetentionFieldsPage() {
           {/* Formula builder */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-2">Formula</label>
-            <div className="flex flex-wrap items-end gap-2">
-              {/* Column A */}
+            <div className="flex flex-wrap items-end gap-3">
+
+              {/* Side A */}
               <div className="space-y-1">
                 <p className="text-xs text-gray-400">Table A</p>
                 <select
                   value={form.table_a}
-                  onChange={(e) => setForm({ ...form, table_a: e.target.value })}
+                  onChange={(e) => setForm({ ...form, table_a: e.target.value, column_a: '' })}
                   className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {TABLES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">Column A *</p>
-                <input
-                  required
-                  value={form.column_a}
-                  onChange={(e) => setForm({ ...form, column_a: e.target.value })}
-                  placeholder="column_name"
-                  className="w-36 border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              <ColumnSelect
+                label="Column A *"
+                table={form.table_a}
+                value={form.column_a}
+                onChange={(v) => setForm({ ...form, column_a: v })}
+              />
 
               {/* Operator */}
               <div className="space-y-1">
@@ -165,33 +214,29 @@ export function RetentionFieldsPage() {
                 </select>
               </div>
 
-              {/* Column B */}
+              {/* Side B */}
               <div className="space-y-1">
                 <p className="text-xs text-gray-400">Table B</p>
                 <select
                   value={form.table_b}
-                  onChange={(e) => setForm({ ...form, table_b: e.target.value })}
+                  onChange={(e) => setForm({ ...form, table_b: e.target.value, column_b: '' })}
                   className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {TABLES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">Column B *</p>
-                <input
-                  required
-                  value={form.column_b}
-                  onChange={(e) => setForm({ ...form, column_b: e.target.value })}
-                  placeholder="column_name"
-                  className="w-36 border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              <ColumnSelect
+                label="Column B *"
+                table={form.table_b}
+                value={form.column_b}
+                onChange={(v) => setForm({ ...form, column_b: v })}
+              />
             </div>
 
             {/* Preview */}
             {form.column_a && form.column_b && (
               <p className="mt-2 text-xs text-gray-500">
-                Preview: <code className="bg-gray-100 px-1 rounded">{form.table_a}.{form.column_a} {form.operator} {form.table_b}.{form.column_b}</code>
+                Preview: <code className="bg-gray-100 px-1.5 py-0.5 rounded">{form.table_a}.{form.column_a} {form.operator} {form.table_b}.{form.column_b}</code>
               </p>
             )}
           </div>
