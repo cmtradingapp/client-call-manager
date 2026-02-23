@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.history_db import init_history_db
+from app.pg_database import init_pg
 from app.routers import calls, clients, filters
 
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_history_db()
+    await init_pg()
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
     logger.info("Shared HTTP client initialised")
     yield

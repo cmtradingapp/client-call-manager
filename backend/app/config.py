@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     elevenlabs_agent_id: str = ""
     elevenlabs_agent_phone_number_id: str = ""
 
+    # PostgreSQL
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "backoffice"
+    postgres_user: str = "backoffice"
+    postgres_password: str = ""
+
     # CORS
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost"]
 
