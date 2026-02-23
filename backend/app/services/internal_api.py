@@ -33,11 +33,16 @@ async def get_crm_data(client: httpx.AsyncClient, client_id: str) -> CRMClientDa
         result = data.get("result") if isinstance(data, dict) else None
         if not isinstance(result, dict):
             return CRMClientData(phone=None, first_name=None, email=None)
-        return CRMClientData(
+        crm_data = CRMClientData(
             phone=result.get("fullTelephone") or None,
             first_name=result.get("firstName") or None,
             email=result.get("email") or None,
         )
+        logger.info(
+            "CRM data | client=%s phone=%s first_name=%r email=%r",
+            client_id, crm_data.phone, crm_data.first_name, crm_data.email,
+        )
+        return crm_data
     except Exception as e:
         logger.warning("CRM API failed for client %s: %s", client_id, e)
         return CRMClientData(phone=None, first_name=None, email=None)
