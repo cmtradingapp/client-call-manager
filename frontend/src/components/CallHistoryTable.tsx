@@ -103,21 +103,15 @@ export function CallHistoryTable() {
   };
 
   const exportUnknown = async () => {
-    const unknownIds = conversations
-      .filter((c) => c.call_successful === 'unknown' || !c.call_successful)
-      .map((c) => c.conversation_id)
-      .filter(Boolean);
-    if (unknownIds.length === 0) return;
     setExporting(true);
     try {
-      const res = await api.post('/call-mappings/export-unknown',
-        { conversation_ids: unknownIds },
-        { responseType: 'blob' }
-      );
+      const params = new URLSearchParams();
+      if (agentId) params.set('agent_id', agentId);
+      const res = await api.get(`/call-mappings/export-unknown?${params}`, { responseType: 'blob' });
       const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'unknown_calls.csv';
+      a.download = agentId ? `unknown_calls_${agentId}.csv` : 'unknown_calls.csv';
       a.click();
       URL.revokeObjectURL(url);
     } catch {
