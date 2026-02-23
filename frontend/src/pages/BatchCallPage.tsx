@@ -44,12 +44,15 @@ const maskPhone = (phone?: string) => {
   return phone.slice(0, 5) + '*'.repeat(Math.max(0, phone.length - 5));
 };
 
+const BATCH_SIZE = 5;
+
 export function BatchCallPage() {
   const [agentId, setAgentId] = useState('');
   const [agentPhoneNumberId, setAgentPhoneNumberId] = useState('');
   const [clients, setClients] = useState<BatchClient[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [calling, setCalling] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,6 +63,7 @@ export function BatchCallPage() {
     setUploadError('');
     setClients([]);
     setSummary(null);
+    setProgress(null);
 
     const text = await file.text();
     const parsed = parseCSV(text);
@@ -70,26 +74,35 @@ export function BatchCallPage() {
     }
 
     setLoading(true);
+    setProgress({ current: 0, total: parsed.length });
+
+    const allEnriched: BatchClient[] = [];
     try {
-      const res = await api.post('/clients/lookup', { clients: parsed });
-      const enriched: BatchClient[] = res.data.map((r: any) => ({
-        id: r.id,
-        first_name: r.first_name ?? '',
-        email: r.email ?? '',
-        phone: r.phone ?? undefined,
-        error: r.error ?? undefined,
-        callStatus: 'idle' as CallStatus,
-      }));
-      setClients(enriched);
+      for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
+        const chunk = parsed.slice(i, i + BATCH_SIZE);
+        const res = await api.post('/clients/lookup', { clients: chunk });
+        const enriched: BatchClient[] = res.data.map((r: any) => ({
+          id: r.id,
+          first_name: r.first_name ?? '',
+          email: r.email ?? '',
+          phone: r.phone ?? undefined,
+          error: r.error ?? undefined,
+          callStatus: 'idle' as CallStatus,
+        }));
+        allEnriched.push(...enriched);
+        setClients([...allEnriched]);
+        setProgress({ current: Math.min(i + BATCH_SIZE, parsed.length), total: parsed.length });
+      }
       setSummary({
-        total: enriched.length,
-        ready: enriched.filter((c) => c.phone).length,
-        errors: enriched.filter((c) => !c.phone).length,
+        total: allEnriched.length,
+        ready: allEnriched.filter((c) => c.phone).length,
+        errors: allEnriched.filter((c) => !c.phone).length,
       });
     } catch {
       setUploadError('Failed to look up clients from CRM');
     } finally {
       setLoading(false);
+      setProgress(null);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -189,10 +202,14 @@ export function BatchCallPage() {
       )}
 
       {/* Table */}
-      {clients.length > 0 && (
+      {(clients.length > 0 || loading) && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <span className="text-sm text-gray-600">{clients.length} clients loaded</span>
+            <span className="text-sm text-gray-600">
+              {loading && progress
+                ? `${progress.current} of ${progress.total} clients loaded…`
+                : `${clients.length} clients loaded`}
+            </span>
             {readyCount > 0 && (
               <button
                 onClick={callAll}
@@ -204,9 +221,26 @@ export function BatchCallPage() {
             )}
           </div>
 
-          {loading ? (
-            <div className="p-12 text-center text-gray-400 text-sm">Looking up clients in CRM…</div>
-          ) : (
+          {loading && progress && (
+            <div className="px-4 py-3 border-b border-gray-100 bg-blue-50">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-blue-700 font-medium">
+                  Looking up clients in CRM… {progress.current} / {progress.total}
+                </span>
+                <span className="text-xs text-blue-600">
+                  {Math.round((progress.current / progress.total) * 100)}%
+                </span>
+              </div>
+              <div className="w-full bg-blue-200 rounded-full h-1.5">
+                <div
+                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {clients.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
