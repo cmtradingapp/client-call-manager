@@ -2,10 +2,13 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.history_db import insert_call_history
+from app.models.call_mapping import CallMapping
+from app.pg_database import get_db
 from app.schemas.call import CallRequest, CallResponse, CallStatus, ClientCallResult
 from app.services.elevenlabs_service import initiate_call
 from app.services.internal_api import get_crm_data
@@ -16,7 +19,7 @@ router = APIRouter()
 
 
 @router.post("/calls/initiate", response_model=CallResponse)
-async def initiate_calls(request: Request, body: CallRequest) -> CallResponse:
+async def initiate_calls(request: Request, body: CallRequest, db: AsyncSession = Depends(get_db)) -> CallResponse:
     http_client = request.app.state.http_client
 
     async def call_one(client_id: str) -> ClientCallResult:
@@ -46,9 +49,12 @@ async def initiate_calls(request: Request, body: CallRequest) -> CallResponse:
             error=result.error,
             agent_id=body.agent_id,
         )
+        if result.conversation_id:
+            db.add(CallMapping(conversation_id=result.conversation_id, account_id=client_id))
         return result
 
     results = await asyncio.gather(*[call_one(cid) for cid in body.client_ids])
+    await db.commit()
     return CallResponse(results=list(results))
 
 
@@ -57,7 +63,7 @@ async def get_call_history(
     request: Request,
     agent_id: Optional[str] = Query(None),
     call_successful: Optional[str] = Query(None),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(100, ge=1, le=100),
     cursor: Optional[str] = Query(None),
 ) -> Any:
     http_client = request.app.state.http_client

@@ -10,6 +10,7 @@ from app.history_db import init_history_db
 from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
+from app.routers.call_mappings import router as call_mappings_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -51,6 +52,7 @@ app.include_router(calls.router, prefix="/api")
 app.include_router(filters.router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(roles_router, prefix="/api")
+app.include_router(call_mappings_router, prefix="/api")
 app.include_router(retention_router, prefix="/api")
 app.include_router(retention_fields_router, prefix="/api")
 

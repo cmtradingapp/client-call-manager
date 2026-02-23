@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 
 import { getCallHistory } from '../api/client';
 import type { ElevenLabsConversation } from '../types';
+
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '/api' });
+api.interceptors.request.use((config) => {
+  const auth = JSON.parse(localStorage.getItem('auth') || '{}');
+  const token = auth?.state?.token;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -31,25 +40,41 @@ function CallSuccessBadge({ value }: { value?: string }) {
 
 export function CallHistoryTable() {
   const [allConversations, setAllConversations] = useState<ElevenLabsConversation[]>([]);
+  const [accountMap, setAccountMap] = useState<Record<string, string>>({});
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentId, setAgentId] = useState('');
   const [callSuccessful, setCallSuccessful] = useState('');
+
+  const fetchMappings = async (conversations: ElevenLabsConversation[]) => {
+    const ids = conversations.map((c) => c.conversation_id).filter(Boolean);
+    if (ids.length === 0) return;
+    try {
+      const res = await api.post('/call-mappings/lookup', { conversation_ids: ids });
+      setAccountMap((prev) => ({ ...prev, ...res.data.mappings }));
+    } catch {
+      // non-critical — account IDs just won't show
+    }
+  };
 
   const load = async () => {
     setLoading(true);
     setError(null);
     setAllConversations([]);
+    setAccountMap({});
     setNextCursor(undefined);
     try {
       const data = await getCallHistory({
         agent_id: agentId || undefined,
         page_size: 100,
       });
-      setAllConversations(data.conversations ?? []);
+      const convs = data.conversations ?? [];
+      setAllConversations(convs);
       setNextCursor(data.next_cursor);
+      await fetchMappings(convs);
     } catch {
       setError('Failed to load call history from ElevenLabs');
     } finally {
@@ -66,12 +91,39 @@ export function CallHistoryTable() {
         page_size: 100,
         cursor: nextCursor,
       });
-      setAllConversations((prev) => [...prev, ...(data.conversations ?? [])]);
+      const convs = data.conversations ?? [];
+      setAllConversations((prev) => [...prev, ...convs]);
       setNextCursor(data.next_cursor);
+      await fetchMappings(convs);
     } catch {
       setError('Failed to load more results');
     } finally {
       setLoadingMore(false);
+    }
+  };
+
+  const exportUnknown = async () => {
+    const unknownIds = conversations
+      .filter((c) => c.call_successful === 'unknown' || !c.call_successful)
+      .map((c) => c.conversation_id)
+      .filter(Boolean);
+    if (unknownIds.length === 0) return;
+    setExporting(true);
+    try {
+      const res = await api.post('/call-mappings/export-unknown',
+        { conversation_ids: unknownIds },
+        { responseType: 'blob' }
+      );
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'unknown_calls.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to export');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -145,12 +197,21 @@ export function CallHistoryTable() {
                 {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
                 {nextCursor && <span className="text-gray-400 ml-1">(more available)</span>}
               </span>
+              {conversations.some((c) => c.call_successful === 'unknown' || !c.call_successful) && (
+                <button
+                  onClick={exportUnknown}
+                  disabled={exporting}
+                  className="px-3 py-1.5 bg-yellow-500 text-white rounded-md text-xs font-medium hover:bg-yellow-600 disabled:opacity-50 transition-colors"
+                >
+                  {exporting ? 'Exporting…' : `Export Unknown as CSV`}
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Date', 'Conversation ID', 'Agent Name', 'Duration', 'Result'].map((h) => (
+                    {['Account ID', 'Date', 'Conversation ID', 'Agent Name', 'Duration', 'Result'].map((h) => (
                       <th
                         key={h}
                         className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
@@ -163,6 +224,9 @@ export function CallHistoryTable() {
                 <tbody>
                   {conversations.map((c) => (
                     <tr key={c.conversation_id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {accountMap[c.conversation_id] ?? <span className="text-gray-400">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                         {formatDate(c.start_time_unix_secs)}
                       </td>
