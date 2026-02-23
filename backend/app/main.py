@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
     init_replica()
     async with AsyncSessionLocal() as session:
         await seed_admin(session)
+    # Mark any stale "running" jobs left over from a previous crash/restart
+    from sqlalchemy import text as _text
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            _text("UPDATE etl_sync_log SET status='error', error_message='Interrupted by restart' WHERE status='running'")
+        )
+        await session.commit()
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
     logger.info("Shared HTTP client initialised")
 
