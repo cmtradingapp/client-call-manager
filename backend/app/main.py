@@ -54,3 +54,17 @@ app.include_router(roles_router, prefix="/api")
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/health/replica")
+async def health_replica() -> dict:
+    from app.replica_database import _replica_engine
+    if _replica_engine is None:
+        return {"status": "not_configured", "detail": "REPLICA_DB_HOST is not set"}
+    try:
+        from sqlalchemy import text
+        async with _replica_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ok", "host": settings.replica_db_host, "port": settings.replica_db_port, "db": settings.replica_db_name}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
