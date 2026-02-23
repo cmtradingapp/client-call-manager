@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 
 import { CallHistoryPage } from './pages/CallHistoryPage';
 import { CallManagerPage } from './pages/CallManagerPage';
 import { RetentionPage } from './pages/RetentionPage';
+import { RetentionTasksPage } from './pages/RetentionTasksPage';
 
 const NAV_SECTIONS = [
   {
@@ -16,15 +18,17 @@ const NAV_SECTIONS = [
     title: 'Retention',
     items: [
       { to: '/retention', label: 'Retention Manager' },
+      { to: '/retention-tasks', label: 'Retention Tasks' },
     ],
   },
 ];
 
-const PAGE_TITLES: Record<string, string> = {
-  '/call-manager': 'Call Manager',
-  '/call-history': 'Call History',
-  '/retention': 'Retention Manager',
-};
+const ROUTES: { path: string; title: string; element: ReactNode }[] = [
+  { path: '/call-manager', title: 'Call Manager', element: <CallManagerPage /> },
+  { path: '/call-history', title: 'Call History', element: <CallHistoryPage /> },
+  { path: '/retention', title: 'Retention Manager', element: <RetentionPage /> },
+  { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage /> },
+];
 
 export default function App() {
   return (
@@ -66,7 +70,7 @@ export default function App() {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Routes>
-          {Object.entries(PAGE_TITLES).map(([path, title]) => (
+          {ROUTES.map(({ path, title, element }) => (
             <Route
               key={path}
               path={path}
@@ -76,9 +80,7 @@ export default function App() {
                     <h1 className="text-lg font-semibold text-gray-800">{title}</h1>
                   </header>
                   <main className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-                    {path === '/call-manager' && <CallManagerPage />}
-                    {path === '/call-history' && <CallHistoryPage />}
-                    {path === '/retention' && <RetentionPage />}
+                    {element}
                   </main>
                 </>
               }
