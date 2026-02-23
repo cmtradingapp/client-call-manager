@@ -22,7 +22,7 @@ _MSSQL_ACCOUNTS_QUERY = """
 # Step 2: Count trades per login from dealio replica
 _REPLICA_TRADES_QUERY = """
     SELECT login, COUNT(*) AS trade_count
-    FROM trades_mt4
+    FROM dealio.trades_mt4
     WHERE cmd IN (0, 1)
       AND login = ANY(:logins)
     GROUP BY login
