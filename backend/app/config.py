@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # ElevenLabs — required when mock_mode=False
     elevenlabs_api_key: str = ""
     elevenlabs_agent_id: str = ""
-    elevenlabs_from_number: str = "+15550000000"
+    elevenlabs_agent_phone_number_id: str = ""
 
     # CORS
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost"]

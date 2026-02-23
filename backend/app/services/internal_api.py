@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from typing import Optional
 
 import httpx
@@ -8,10 +9,17 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def get_phone_number(client: httpx.AsyncClient, client_id: str) -> Optional[str]:
-    """Fetch fullTelephone for a client from the CRM API."""
+@dataclass
+class CRMClientData:
+    phone: Optional[str]
+    first_name: Optional[str]
+    email: Optional[str]
+
+
+async def get_crm_data(client: httpx.AsyncClient, client_id: str) -> CRMClientData:
+    """Fetch phone, first name and email for a client from the CRM API."""
     if settings.mock_mode:
-        return None
+        return CRMClientData(phone=None, first_name=None, email=None)
 
     try:
         response = await client.get(
@@ -23,8 +31,18 @@ async def get_phone_number(client: httpx.AsyncClient, client_id: str) -> Optiona
         response.raise_for_status()
         data = response.json()
         result = data.get("result") if isinstance(data, dict) else None
-        phone = result.get("fullTelephone") if isinstance(result, dict) else None
-        return phone or None
+        if not isinstance(result, dict):
+            return CRMClientData(phone=None, first_name=None, email=None)
+        return CRMClientData(
+            phone=result.get("fullTelephone") or None,
+            first_name=result.get("firstName") or None,
+            email=result.get("email") or None,
+        )
     except Exception as e:
         logger.warning("CRM API failed for client %s: %s", client_id, e)
-        return None
+        return CRMClientData(phone=None, first_name=None, email=None)
+
+
+# Kept for backward compatibility with client_service.py enrichment
+async def get_phone_number(client: httpx.AsyncClient, client_id: str) -> Optional[str]:
+    return (await get_crm_data(client, client_id)).phone
