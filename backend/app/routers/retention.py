@@ -17,7 +17,7 @@ _DATA_QUERY = """
     LEFT JOIN report.dealio_mt4trades t
         ON t.login = vta.login
         AND t.cmd IN (0, 1)
-    WHERE a.client_qualification_time IS NOT NULL
+    WHERE a.client_qualification_date IS NOT NULL
     GROUP BY a.accountid
     ORDER BY a.accountid
     OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
@@ -26,7 +26,7 @@ _DATA_QUERY = """
 _COUNT_QUERY = """
     SELECT COUNT(DISTINCT a.accountid)
     FROM report.ant_acc a
-    WHERE a.client_qualification_time IS NOT NULL
+    WHERE a.client_qualification_date IS NOT NULL
 """
 
 
