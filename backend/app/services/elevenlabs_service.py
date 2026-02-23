@@ -37,10 +37,16 @@ async def initiate_call(
 
     try:
         numeric_id = int(client_id) if client_id.isdigit() else client_id
+        # Ensure E.164 format (+ prefix required by Twilio)
+        e164_number = phone_number if phone_number.startswith("+") else f"+{phone_number}"
+        logger.info(
+            "ElevenLabs call | client=%s phone=%s first_name=%r email=%r agent=%s phone_id=%s",
+            client_id, e164_number, first_name, email, effective_agent_id, effective_phone_id,
+        )
         payload = {
             "agent_id": effective_agent_id,
             "agent_phone_number_id": effective_phone_id,
-            "to_number": phone_number,
+            "to_number": e164_number,
             "conversation_initiation_client_data": {
                 "dynamic_variables": {
                     "Client_first_name": first_name or "",
