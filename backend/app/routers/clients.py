@@ -1,10 +1,13 @@
+import asyncio
 from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Request
+from pydantic import BaseModel
 
 from app.schemas.client import ClientDetail, FilterParams
 from app.services.client_service import get_filtered_clients
+from app.services.internal_api import get_crm_data
 
 router = APIRouter()
 
@@ -37,3 +40,31 @@ async def list_clients(
     )
     http_client = request.app.state.http_client
     return await get_filtered_clients(http_client, filters)
+
+
+class LookupItem(BaseModel):
+    id: str
+    first_name: str | None = None
+    email: str | None = None
+
+
+class LookupRequest(BaseModel):
+    clients: List[LookupItem]
+
+
+@router.post("/clients/lookup")
+async def lookup_clients(request: Request, body: LookupRequest):
+    http_client = request.app.state.http_client
+
+    async def enrich(item: LookupItem) -> dict:
+        crm = await get_crm_data(http_client, item.id)
+        return {
+            "id": item.id,
+            "first_name": crm.first_name or item.first_name,
+            "email": crm.email or item.email,
+            "phone": crm.phone,
+            "error": None if crm.phone else "Phone number not found",
+        }
+
+    results = await asyncio.gather(*[enrich(c) for c in body.clients])
+    return list(results)

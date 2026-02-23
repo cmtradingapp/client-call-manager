@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 
 import { useAuthStore } from './store/useAuthStore';
+import { BatchCallPage } from './pages/BatchCallPage';
 import { CallHistoryPage } from './pages/CallHistoryPage';
 import { CallManagerPage } from './pages/CallManagerPage';
 import { LoginPage } from './pages/LoginPage';
@@ -22,6 +23,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/call-manager', label: 'Call Manager', permission: 'call-manager' },
       { to: '/call-history', label: 'Call History', permission: 'call-history' },
+      { to: '/batch-call', label: 'Batch Call from File', permission: 'batch-call' },
     ],
   },
   {
@@ -44,6 +46,7 @@ const NAV_SECTIONS: NavSection[] = [
 const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boolean; permission?: string }[] = [
   { path: '/call-manager', title: 'Call Manager', element: <CallManagerPage />, permission: 'call-manager' },
   { path: '/call-history', title: 'Call History', element: <CallHistoryPage />, permission: 'call-history' },
+  { path: '/batch-call', title: 'Batch Call from File', element: <BatchCallPage />, permission: 'batch-call' },
   { path: '/retention', title: 'Retention Manager', element: <RetentionPage />, permission: 'retention' },
   { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage />, permission: 'retention-tasks' },
   { path: '/admin/users', title: 'Users', element: <UsersPage />, adminOnly: true },
