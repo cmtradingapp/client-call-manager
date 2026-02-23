@@ -44,8 +44,6 @@ async def list_clients(
 
 class LookupItem(BaseModel):
     id: str
-    first_name: str | None = None
-    email: str | None = None
 
 
 class LookupRequest(BaseModel):
@@ -60,10 +58,10 @@ async def lookup_clients(request: Request, body: LookupRequest):
         crm = await get_crm_data(http_client, item.id)
         return {
             "id": item.id,
-            "first_name": crm.first_name or item.first_name,
-            "email": crm.email or item.email,
+            "first_name": crm.first_name,
+            "email": crm.email,
             "phone": crm.phone,
-            "error": None if crm.phone else "Phone number not found",
+            "error": None if crm.phone else "Phone number not found in CRM",
         }
 
     results = await asyncio.gather(*[enrich(c) for c in body.clients])

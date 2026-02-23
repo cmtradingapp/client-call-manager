@@ -28,20 +28,15 @@ interface Summary {
   errors: number;
 }
 
-function parseCSV(text: string): { id: string; first_name: string; email: string }[] {
+function parseCSV(text: string): { id: string }[] {
   const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
-  return lines.slice(1).map((line) => {
-    const values = line.split(',').map((v) => v.trim().replace(/"/g, ''));
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
-    return {
-      id: row['id'] ?? '',
-      first_name: row['first_name'] ?? row['firstname'] ?? row['first name'] ?? '',
-      email: row['email'] ?? '',
-    };
-  }).filter((r) => r.id);
+  if (lines.length < 1) return [];
+  // Support files with or without a header row
+  const firstLine = lines[0].trim().toLowerCase().replace(/"/g, '');
+  const dataLines = firstLine === 'id' ? lines.slice(1) : lines;
+  return dataLines
+    .map((line) => ({ id: line.split(',')[0].trim().replace(/"/g, '') }))
+    .filter((r) => r.id);
 }
 
 const maskPhone = (phone?: string) => {
@@ -70,7 +65,7 @@ export function BatchCallPage() {
     const parsed = parseCSV(text);
 
     if (parsed.length === 0) {
-      setUploadError('No valid rows found. Make sure the CSV has columns: id, first_name, email');
+      setUploadError('No valid IDs found. Make sure the CSV has an id column.');
       return;
     }
 
@@ -161,7 +156,7 @@ export function BatchCallPage() {
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            Upload CSV <span className="text-gray-400 font-normal">(columns: id, first_name, email)</span>
+            Upload CSV <span className="text-gray-400 font-normal">(one ID per row — first name, email and phone fetched from CRM)</span>
           </label>
           <input
             ref={fileRef}
