@@ -63,9 +63,9 @@ export function CallHistoryTable() {
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
 
-  const formatDate = (ts?: number) => {
-    if (!ts) return '—';
-    return new Date(ts * 1000).toLocaleString();
+  const formatDate = (unixSec?: number) => {
+    if (!unixSec) return '—';
+    return new Date(unixSec * 1000).toLocaleString();
   };
 
   return (
@@ -136,7 +136,7 @@ export function CallHistoryTable() {
                   {conversations.map((c) => (
                     <tr key={c.conversation_id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                        {formatDate(c.start_time)}
+                        {formatDate(c.start_time_unix_sec)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 font-mono text-xs">
                         {c.conversation_id}
