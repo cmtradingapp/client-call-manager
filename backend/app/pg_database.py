@@ -21,6 +21,9 @@ class Base(DeclarativeBase):
 
 
 async def init_pg() -> None:
+    # Import all models so they are registered with Base.metadata
+    from app.models import user  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
