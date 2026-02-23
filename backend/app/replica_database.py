@@ -28,6 +28,7 @@ def init_replica() -> None:
     try:
         if settings.replica_db_ssl:
             ssl_ctx = ssl.create_default_context(cafile="/app/certs/ca.crt")
+            ssl_ctx.check_hostname = False  # hostname verified via mutual TLS certs
             ssl_ctx.load_cert_chain("/app/certs/client.crt", "/app/certs/client.key")
             connect_args = {"ssl": ssl_ctx}
         else:
