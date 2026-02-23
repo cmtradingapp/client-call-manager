@@ -44,7 +44,7 @@ const maskPhone = (phone?: string) => {
   return phone.slice(0, 5) + '*'.repeat(Math.max(0, phone.length - 5));
 };
 
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 1;
 
 export function BatchCallPage() {
   const [agentId, setAgentId] = useState('');
