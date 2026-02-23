@@ -7,28 +7,27 @@ from app.database import execute_query
 
 router = APIRouter()
 
-_DATA_QUERY = """
+_QUERY = """
+    WITH trade_counts AS (
+        SELECT
+            vta.vtigeraccountid,
+            COUNT(t.login) AS trade_count
+        FROM report.vtiger_trading_accounts vta
+        INNER JOIN report.dealio_mt4trades t
+            ON t.login = vta.login
+        WHERE t.cmd IN (0, 1)
+          AND t.symbol NOT IN ('Inactivity', 'ZeroingUSD', 'Spread')
+        GROUP BY vta.vtigeraccountid
+    )
     SELECT
         a.accountid,
-        COUNT(t.login) AS trade_count
+        tc.trade_count,
+        COUNT(*) OVER() AS total_count
     FROM report.ant_acc a
-    LEFT JOIN report.vtiger_trading_accounts vta
-        ON a.accountid = vta.vtigeraccountid
-    LEFT JOIN report.dealio_mt4trades t
-        ON t.login = vta.login
-        AND t.cmd IN (0, 1)
-        AND t.symbol NOT IN ('Inactivity', 'ZeroingUSD', 'Spread')
+    INNER JOIN trade_counts tc ON a.accountid = tc.vtigeraccountid
     WHERE a.client_qualification_date IS NOT NULL
-    GROUP BY a.accountid
-    HAVING COUNT(t.login) > 0
     ORDER BY a.accountid
     OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
-"""
-
-_COUNT_QUERY = """
-    SELECT COUNT(DISTINCT a.accountid)
-    FROM report.ant_acc a
-    WHERE a.client_qualification_date IS NOT NULL
 """
 
 
@@ -39,11 +38,8 @@ async def get_retention_clients(
     _: Any = Depends(get_current_user),
 ) -> dict:
     try:
-        offset = (page - 1) * page_size
-        count_rows = await execute_query(_COUNT_QUERY)
-        total = list(count_rows[0].values())[0] if count_rows else 0
-
-        rows = await execute_query(_DATA_QUERY, (offset, page_size))
+        rows = await execute_query(_QUERY, ((page - 1) * page_size, page_size))
+        total = int(rows[0]["total_count"]) if rows else 0
         return {
             "total": total,
             "page": page,
