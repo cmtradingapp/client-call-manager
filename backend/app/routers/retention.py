@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import get_current_user
 from app.database import execute_query
-from app.replica_database import get_replica_db
+from app.pg_database import get_db
 
 router = APIRouter()
 
@@ -20,10 +20,10 @@ _MSSQL_ACCOUNTS_QUERY = """
     WHERE a.client_qualification_date IS NOT NULL
 """
 
-# Step 2: Count trades per login from dealio replica
-_REPLICA_TRADES_QUERY = """
+# Step 2: Count trades per login from local mirror
+_LOCAL_TRADES_QUERY = """
     SELECT login, COUNT(*) AS trade_count
-    FROM dealio.trades_mt4
+    FROM trades_mt4
     WHERE cmd IN (0, 1)
       AND login = ANY(:logins)
     GROUP BY login
@@ -35,7 +35,7 @@ async def get_retention_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     _: Any = Depends(get_current_user),
-    replica_db: AsyncSession = Depends(get_replica_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         # 1. Fetch qualified accounts + logins from MSSQL
@@ -57,9 +57,9 @@ async def get_retention_clients(
 
         logins = list(login_to_account.keys())
 
-        # 2. Count trades per login from dealio replica
-        result = await replica_db.execute(
-            text(_REPLICA_TRADES_QUERY),
+        # 2. Count trades per login from local mirror
+        result = await db.execute(
+            text(_LOCAL_TRADES_QUERY),
             {"logins": logins},
         )
         trade_rows = result.mappings().all()
