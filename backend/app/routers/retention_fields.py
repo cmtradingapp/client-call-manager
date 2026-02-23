@@ -3,13 +3,13 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import require_admin
+from app.database import execute_query
 from app.models.retention_field import RetentionField
 from app.pg_database import get_db
-from app.replica_database import get_replica_engine
 
 router = APIRouter()
 
@@ -56,22 +56,16 @@ async def get_columns(
 ) -> List[str]:
     if table not in AVAILABLE_TABLES:
         raise HTTPException(status_code=400, detail=f"Invalid table: {table}")
-    engine = get_replica_engine()
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Replica database is not configured")
     parts = table.split(".", 1)
-    schema, table_name = (parts[0], parts[1]) if len(parts) == 2 else ("public", parts[0])
+    schema, table_name = (parts[0], parts[1]) if len(parts) == 2 else ("dbo", parts[0])
     try:
-        async with engine.connect() as conn:
-            result = await conn.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema = :schema AND table_name = :table "
-                    "ORDER BY ordinal_position"
-                ),
-                {"schema": schema, "table": table_name},
-            )
-            return [row[0] for row in result.fetchall()]
+        rows = await execute_query(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? "
+            "ORDER BY ORDINAL_POSITION",
+            (schema, table_name),
+        )
+        return [r["COLUMN_NAME"] for r in rows]
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch columns: {e}")
 
