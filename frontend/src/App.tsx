@@ -6,11 +6,6 @@ import { FilterPanel } from './components/FilterPanel';
 
 type Page = 'call-manager' | 'call-history';
 
-interface NavItem {
-  id: Page;
-  label: string;
-}
-
 const NAV_SECTIONS = [
   {
     title: 'AI Calls',
