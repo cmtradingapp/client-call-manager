@@ -30,7 +30,7 @@ function CallSuccessBadge({ value }: { value?: string }) {
 }
 
 export function CallHistoryTable() {
-  const [conversations, setConversations] = useState<ElevenLabsConversation[]>([]);
+  const [allConversations, setAllConversations] = useState<ElevenLabsConversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentId, setAgentId] = useState('');
@@ -42,15 +42,18 @@ export function CallHistoryTable() {
     try {
       const data = await getCallHistory({
         agent_id: agentId || undefined,
-        call_successful: callSuccessful || undefined,
       });
-      setConversations(data.conversations ?? []);
+      setAllConversations(data.conversations ?? []);
     } catch {
       setError('Failed to load call history from ElevenLabs');
     } finally {
       setLoading(false);
     }
   };
+
+  const conversations = callSuccessful
+    ? allConversations.filter((c) => c.call_successful === callSuccessful)
+    : allConversations;
 
   useEffect(() => {
     load();
