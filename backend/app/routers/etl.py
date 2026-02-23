@@ -44,17 +44,18 @@ async def _run_full_sync(log_id: int) -> None:
             await db.commit()
 
         total = 0
-        offset = 0
+        cursor = 0  # last ticket seen; use WHERE ticket > cursor for fast index seek
 
         while True:
             async with _ReplicaSession() as replica_db:
                 result = await replica_db.execute(
                     text(
                         "SELECT ticket, login, cmd FROM dealio.trades_mt4"
+                        " WHERE ticket > :cursor"
                         " ORDER BY ticket"
-                        " LIMIT :limit OFFSET :offset"
+                        " LIMIT :limit"
                     ),
-                    {"limit": _BATCH_SIZE, "offset": offset},
+                    {"cursor": cursor, "limit": _BATCH_SIZE},
                 )
                 rows = result.fetchall()
 
@@ -66,8 +67,8 @@ async def _run_full_sync(log_id: int) -> None:
                 await db.commit()
 
             total += len(rows)
-            offset += _BATCH_SIZE
-            logger.info("ETL full sync: %d rows so far", total)
+            cursor = rows[-1][0]  # advance cursor to last ticket in this batch
+            logger.info("ETL full sync: %d rows so far (cursor=%d)", total, cursor)
 
             if len(rows) < _BATCH_SIZE:
                 break
@@ -111,18 +112,18 @@ async def incremental_sync_trades(
             log_id = log.id
 
         total = 0
-        offset = 0
+        cursor = last_ticket  # start after the highest ticket already stored
 
         while True:
             async with replica_session_factory() as replica_db:
                 result = await replica_db.execute(
                     text(
                         "SELECT ticket, login, cmd FROM dealio.trades_mt4"
-                        " WHERE ticket > :last_ticket"
+                        " WHERE ticket > :cursor"
                         " ORDER BY ticket"
-                        " LIMIT :limit OFFSET :offset"
+                        " LIMIT :limit"
                     ),
-                    {"last_ticket": last_ticket, "limit": _BATCH_SIZE, "offset": offset},
+                    {"cursor": cursor, "limit": _BATCH_SIZE},
                 )
                 rows = result.fetchall()
 
@@ -134,7 +135,7 @@ async def incremental_sync_trades(
                 await db.commit()
 
             total += len(rows)
-            offset += _BATCH_SIZE
+            cursor = rows[-1][0]  # advance cursor to last ticket in this batch
 
             if len(rows) < _BATCH_SIZE:
                 break
