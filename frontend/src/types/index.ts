@@ -47,14 +47,17 @@ export interface CallResponse {
   results: ClientCallResult[];
 }
 
-export interface CallHistoryRecord {
-  id: number;
-  client_id: string;
-  client_name?: string;
-  phone_number?: string;
-  conversation_id?: string;
-  status: 'initiated' | 'failed';
-  called_at: string;
-  error?: string;
-  agent_id?: string;
+export interface ElevenLabsConversation {
+  conversation_id: string;
+  agent_id: string;
+  agent_name?: string;
+  start_time?: number;
+  call_duration_secs?: number;
+  call_successful?: 'success' | 'failure' | 'unknown';
+}
+
+export interface ConversationsResponse {
+  conversations: ElevenLabsConversation[];
+  has_more: boolean;
+  next_cursor?: string;
 }

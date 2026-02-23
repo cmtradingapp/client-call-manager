@@ -1,12 +1,12 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.history_db import insert_call_history, query_call_history
+from app.config import settings
+from app.history_db import insert_call_history
 from app.schemas.call import CallRequest, CallResponse, CallStatus, ClientCallResult
-from app.schemas.history import CallHistoryRecord
 from app.services.elevenlabs_service import initiate_call
 from app.services.internal_api import get_crm_data
 
@@ -52,19 +52,30 @@ async def initiate_calls(request: Request, body: CallRequest) -> CallResponse:
     return CallResponse(results=list(results))
 
 
-@router.get("/calls/history", response_model=list[CallHistoryRecord])
+@router.get("/calls/history")
 async def get_call_history(
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-) -> list[CallHistoryRecord]:
-    records = await query_call_history(
-        date_from=date_from,
-        date_to=date_to,
-        status=status,
-        limit=limit,
-        offset=offset,
-    )
-    return [CallHistoryRecord(**r) for r in records]
+    request: Request,
+    agent_id: Optional[str] = Query(None),
+    call_successful: Optional[str] = Query(None),
+    page_size: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = Query(None),
+) -> Any:
+    http_client = request.app.state.http_client
+    params: dict[str, Any] = {"page_size": page_size}
+    if agent_id:
+        params["agent_id"] = agent_id
+    if call_successful:
+        params["call_successful"] = call_successful
+    if cursor:
+        params["cursor"] = cursor
+    try:
+        response = await http_client.get(
+            "https://api.elevenlabs.io/v1/convai/conversations",
+            params=params,
+            headers={"xi-api-key": settings.elevenlabs_api_key},
+        )
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Failed to fetch ElevenLabs conversations: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch call history from ElevenLabs")

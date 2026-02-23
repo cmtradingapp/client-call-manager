@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import type { CallHistoryRecord, CallResponse, ClientDetail, Country, FilterParams, SalesStatus } from '../types';
+import type { CallResponse, ClientDetail, ConversationsResponse, Country, FilterParams, SalesStatus } from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -26,13 +26,12 @@ export async function getStatuses(): Promise<SalesStatus[]> {
 }
 
 export async function getCallHistory(params?: {
-  date_from?: string;
-  date_to?: string;
-  status?: string;
-  limit?: number;
-  offset?: number;
-}): Promise<CallHistoryRecord[]> {
-  const response = await api.get<CallHistoryRecord[]>('/calls/history', { params });
+  agent_id?: string;
+  call_successful?: string;
+  page_size?: number;
+  cursor?: string;
+}): Promise<ConversationsResponse> {
+  const response = await api.get<ConversationsResponse>('/calls/history', { params });
   return response.data;
 }
 
