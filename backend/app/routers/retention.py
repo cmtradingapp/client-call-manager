@@ -10,7 +10,7 @@ router = APIRouter()
 _DATA_QUERY = """
     SELECT
         a.accountid,
-        COUNT(t.ticket) AS trade_count
+        COUNT(t.login) AS trade_count
     FROM report.ant_acc a
     LEFT JOIN report.vtiger_trading_accounts vta
         ON a.accountid = vta.vtigeraccountid
