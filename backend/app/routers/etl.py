@@ -189,12 +189,17 @@ async def sync_status(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ) -> dict:
-    """Return the last 20 sync runs."""
-    result = await db.execute(
+    """Return the last 20 sync runs and current local table row count."""
+    logs_result = await db.execute(
         text("SELECT * FROM etl_sync_log ORDER BY started_at DESC LIMIT 20")
     )
-    rows = result.mappings().all()
+    rows = logs_result.mappings().all()
+
+    count_result = await db.execute(text("SELECT COUNT(*) FROM trades_mt4"))
+    local_row_count = count_result.scalar() or 0
+
     return {
+        "local_row_count": local_row_count,
         "logs": [
             {
                 "id": r["id"],

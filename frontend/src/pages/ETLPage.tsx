@@ -46,6 +46,7 @@ function duration(log: SyncLog) {
 
 export function ETLPage() {
   const [logs, setLogs] = useState<SyncLog[]>([]);
+  const [localRowCount, setLocalRowCount] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -54,6 +55,7 @@ export function ETLPage() {
     try {
       const res = await api.get('/etl/sync-status');
       setLogs(res.data.logs);
+      setLocalRowCount(res.data.local_row_count);
     } catch {
       // silently ignore polling errors
     }
@@ -90,7 +92,11 @@ export function ETLPage() {
           <p className="text-sm font-semibold text-gray-800">{formatDate(lastCompleted?.completed_at ?? null)}</p>
         </div>
         <div className="bg-white rounded-lg shadow px-5 py-4">
-          <p className="text-xs text-gray-500 mb-1">Last Rows Synced</p>
+          <p className="text-xs text-gray-500 mb-1">Local Table Rows</p>
+          <p className="text-2xl font-bold text-gray-800">{localRowCount?.toLocaleString() ?? '—'}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow px-5 py-4">
+          <p className="text-xs text-gray-500 mb-1">Last Sync Rows</p>
           <p className="text-2xl font-bold text-gray-800">{lastCompleted?.rows_synced?.toLocaleString() ?? '—'}</p>
         </div>
         <div className="bg-white rounded-lg shadow px-5 py-4">
