@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     elevenlabs_agent_id: str = ""
     elevenlabs_agent_phone_number_id: str = ""
 
+    # JWT
+    jwt_secret: str = "change-this-to-a-random-secret"
+    jwt_expire_hours: int = 8
+
     # PostgreSQL
     postgres_host: str = "localhost"
     postgres_port: int = 5432

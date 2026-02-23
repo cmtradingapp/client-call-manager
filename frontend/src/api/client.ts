@@ -6,6 +6,13 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
+api.interceptors.request.use((config) => {
+  const auth = JSON.parse(localStorage.getItem('auth') || '{}');
+  const token = auth?.state?.token;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export async function getClients(filters: FilterParams): Promise<ClientDetail[]> {
   // Strip undefined / empty-string values so they don't appear as query params
   const params = Object.fromEntries(

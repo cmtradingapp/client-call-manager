@@ -4,6 +4,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.role import ALL_PAGES, Role
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -20,19 +21,26 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 async def seed_admin(session: AsyncSession) -> None:
-    result = await session.execute(select(User).where(User.username == "admin"))
-    existing = result.scalar_one_or_none()
-    if existing:
-        logger.info("Admin user already exists, skipping seed")
-        return
+    # Seed admin role
+    result = await session.execute(select(Role).where(Role.name == "admin"))
+    admin_role = result.scalar_one_or_none()
+    if not admin_role:
+        admin_role = Role(name="admin", permissions=ALL_PAGES)
+        session.add(admin_role)
+        await session.flush()
+        logger.info("Admin role created")
 
-    admin = User(
-        username="admin",
-        email="admin@backoffice.local",
-        hashed_password=hash_password("Hdtkfvi12345"),
-        role="admin",
-        is_active=True,
-    )
-    session.add(admin)
+    # Seed admin user
+    result = await session.execute(select(User).where(User.username == "admin"))
+    if not result.scalar_one_or_none():
+        admin = User(
+            username="admin",
+            email="admin@backoffice.local",
+            hashed_password=hash_password("Hdtkfvi12345"),
+            role="admin",
+            is_active=True,
+        )
+        session.add(admin)
+        logger.info("Admin user created")
+
     await session.commit()
-    logger.info("Admin user created successfully")

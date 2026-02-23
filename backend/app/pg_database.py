@@ -21,13 +21,12 @@ class Base(DeclarativeBase):
 
 
 async def init_pg() -> None:
-    # Import all models so they are registered with Base.metadata
-    from app.models import user  # noqa: F401
+    from app.models import role, user  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_db() -> AsyncSession:
+async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
