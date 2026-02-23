@@ -46,3 +46,15 @@ export interface ClientCallResult {
 export interface CallResponse {
   results: ClientCallResult[];
 }
+
+export interface CallHistoryRecord {
+  id: number;
+  client_id: string;
+  client_name?: string;
+  phone_number?: string;
+  conversation_id?: string;
+  status: 'initiated' | 'failed';
+  called_at: string;
+  error?: string;
+  agent_id?: string;
+}

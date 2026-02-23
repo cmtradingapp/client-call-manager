@@ -5,6 +5,8 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    volumes:
+      - call_history_data:/app/data
     restart: unless-stopped
 
   frontend:
@@ -14,3 +16,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  call_history_data:
