@@ -51,7 +51,7 @@ export interface ElevenLabsConversation {
   conversation_id: string;
   agent_id: string;
   agent_name?: string;
-  start_time_unix_sec?: number;
+  start_time_unix_secs?: number;
   call_duration_secs?: number;
   call_successful?: 'success' | 'failure' | 'unknown';
 }

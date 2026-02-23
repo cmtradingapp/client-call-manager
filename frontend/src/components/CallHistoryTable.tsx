@@ -136,7 +136,7 @@ export function CallHistoryTable() {
                   {conversations.map((c) => (
                     <tr key={c.conversation_id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                        {formatDate(c.start_time_unix_sec)}
+                        {formatDate(c.start_time_unix_secs)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 font-mono text-xs">
                         {c.conversation_id}
