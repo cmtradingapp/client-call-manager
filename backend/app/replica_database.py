@@ -30,6 +30,10 @@ def init_replica() -> None:
         logger.error("Failed to initialise replica DB engine: %s", e)
 
 
+def get_replica_engine():
+    return _replica_engine
+
+
 async def get_replica_db() -> AsyncSession:
     if _ReplicaSession is None:
         raise RuntimeError("Replica database is not configured")

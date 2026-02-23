@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from app.auth_deps import get_current_user
-from app.replica_database import _replica_engine
+from app.replica_database import get_replica_engine
 
 router = APIRouter()
 
@@ -44,10 +44,11 @@ async def get_retention_clients(
     page_size: int = Query(50, ge=1, le=200),
     _: Any = Depends(get_current_user),
 ) -> dict:
-    if _replica_engine is None:
+    engine = get_replica_engine()
+    if engine is None:
         raise HTTPException(status_code=503, detail="Replica database is not configured")
     try:
-        async with _replica_engine.connect() as conn:
+        async with engine.connect() as conn:
             total_result = await conn.execute(_COUNT_QUERY)
             total = total_result.scalar() or 0
 

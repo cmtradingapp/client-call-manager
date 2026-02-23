@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth_deps import require_admin
 from app.models.retention_field import RetentionField
 from app.pg_database import get_db
-from app.replica_database import _replica_engine
+from app.replica_database import get_replica_engine
 
 router = APIRouter()
 
@@ -56,13 +56,13 @@ async def get_columns(
 ) -> List[str]:
     if table not in AVAILABLE_TABLES:
         raise HTTPException(status_code=400, detail=f"Invalid table: {table}")
-    if _replica_engine is None:
+    engine = get_replica_engine()
+    if engine is None:
         raise HTTPException(status_code=503, detail="Replica database is not configured")
-    # Split schema.table
     parts = table.split(".", 1)
     schema, table_name = (parts[0], parts[1]) if len(parts) == 2 else ("public", parts[0])
     try:
-        async with _replica_engine.connect() as conn:
+        async with engine.connect() as conn:
             result = await conn.execute(
                 text(
                     "SELECT column_name FROM information_schema.columns "
