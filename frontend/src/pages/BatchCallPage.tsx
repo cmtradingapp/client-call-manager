@@ -221,9 +221,15 @@ export function BatchCallPage() {
               <button
                 onClick={callAll}
                 disabled={calling}
-                className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-70 transition-colors"
               >
-                {calling ? 'Calling…' : `Call All (${readyCount})`}
+                {calling && (
+                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {calling ? 'Initiating calls…' : `Call All (${readyCount})`}
               </button>
             )}
           </div>
@@ -285,7 +291,7 @@ export function BatchCallPage() {
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Ready</span>
                         )}
                         {c.callStatus === 'calling' && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Calling…</span>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 animate-pulse">Calling…</span>
                         )}
                         {c.callStatus === 'called' && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Called ✓</span>
