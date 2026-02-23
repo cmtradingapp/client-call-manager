@@ -31,7 +31,9 @@ function CallSuccessBadge({ value }: { value?: string }) {
 
 export function CallHistoryTable() {
   const [allConversations, setAllConversations] = useState<ElevenLabsConversation[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentId, setAgentId] = useState('');
   const [callSuccessful, setCallSuccessful] = useState('');
@@ -39,15 +41,37 @@ export function CallHistoryTable() {
   const load = async () => {
     setLoading(true);
     setError(null);
+    setAllConversations([]);
+    setNextCursor(undefined);
     try {
       const data = await getCallHistory({
         agent_id: agentId || undefined,
+        page_size: 100,
       });
       setAllConversations(data.conversations ?? []);
+      setNextCursor(data.next_cursor);
     } catch {
       setError('Failed to load call history from ElevenLabs');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const data = await getCallHistory({
+        agent_id: agentId || undefined,
+        page_size: 100,
+        cursor: nextCursor,
+      });
+      setAllConversations((prev) => [...prev, ...(data.conversations ?? [])]);
+      setNextCursor(data.next_cursor);
+    } catch {
+      setError('Failed to load more results');
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -116,9 +140,10 @@ export function CallHistoryTable() {
           <div className="p-12 text-center text-gray-400 text-sm">No conversations found.</div>
         ) : (
           <>
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <span className="text-sm text-gray-600">
                 {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+                {nextCursor && <span className="text-gray-400 ml-1">(more available)</span>}
               </span>
             </div>
             <div className="overflow-x-auto">
@@ -156,6 +181,17 @@ export function CallHistoryTable() {
                 </tbody>
               </table>
             </div>
+          {nextCursor && (
+            <div className="px-4 py-4 border-t border-gray-100 text-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-5 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {loadingMore ? 'Loading…' : 'Load More'}
+              </button>
+            </div>
+          )}
           </>
         )}
       </div>
