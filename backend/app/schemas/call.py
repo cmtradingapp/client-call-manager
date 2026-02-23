@@ -11,6 +11,8 @@ class CallStatus(str, Enum):
 
 class CallRequest(BaseModel):
     client_ids: List[str]
+    agent_id: Optional[str] = None
+    agent_phone_number_id: Optional[str] = None
 
 
 class ClientCallResult(BaseModel):

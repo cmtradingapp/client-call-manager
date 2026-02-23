@@ -28,6 +28,16 @@ interface AppState {
   resetCallStatuses: () => void;
   isCalling: boolean;
   setIsCalling: (v: boolean) => void;
+
+  // Per-client conversation IDs (set after successful call)
+  conversationIds: Record<string, string>;
+  setConversationId: (clientId: string, convId: string) => void;
+
+  // Agent settings
+  agentId: string;
+  setAgentId: (v: string) => void;
+  agentPhoneNumberId: string;
+  setAgentPhoneNumberId: (v: string) => void;
 }
 
 const defaultFilters: FilterParams = {};
@@ -42,7 +52,7 @@ export const useAppStore = create<AppState>((set) => ({
   // Results — also clears selection and call statuses when new results arrive
   results: [],
   setResults: (results) =>
-    set({ results, selectedIds: new Set(), callStatuses: {} }),
+    set({ results, selectedIds: new Set(), callStatuses: {}, conversationIds: {} }),
   isSearching: false,
   setIsSearching: (v) => set({ isSearching: v }),
   searchError: null,
@@ -59,7 +69,12 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   selectAll: () =>
     set((state) => ({
-      selectedIds: new Set(state.results.map((r) => r.client_id)),
+      // Only select clients that have not been called yet
+      selectedIds: new Set(
+        state.results
+          .filter((r) => !state.conversationIds[r.client_id])
+          .map((r) => r.client_id)
+      ),
     })),
   deselectAll: () => set({ selectedIds: new Set() }),
 
@@ -72,4 +87,31 @@ export const useAppStore = create<AppState>((set) => ({
   resetCallStatuses: () => set({ callStatuses: {} }),
   isCalling: false,
   setIsCalling: (v) => set({ isCalling: v }),
+
+  // Conversation IDs — also moves the called client to the bottom of results
+  conversationIds: {},
+  setConversationId: (clientId, convId) =>
+    set((state) => {
+      const newResults = [...state.results];
+      const idx = newResults.findIndex((r) => r.client_id === clientId);
+      if (idx !== -1) {
+        const [called] = newResults.splice(idx, 1);
+        newResults.push(called);
+      }
+      return {
+        conversationIds: { ...state.conversationIds, [clientId]: convId },
+        results: newResults,
+        selectedIds: (() => {
+          const next = new Set(state.selectedIds);
+          next.delete(clientId);
+          return next;
+        })(),
+      };
+    }),
+
+  // Agent settings (pre-filled from env defaults, editable in UI)
+  agentId: '',
+  setAgentId: (v) => set({ agentId: v }),
+  agentPhoneNumberId: '',
+  setAgentPhoneNumberId: (v) => set({ agentPhoneNumberId: v }),
 }));

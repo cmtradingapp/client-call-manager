@@ -30,6 +30,8 @@ async def initiate_calls(request: Request, body: CallRequest) -> CallResponse:
             crm.phone,
             first_name=crm.first_name,
             email=crm.email,
+            agent_id=body.agent_id,
+            agent_phone_number_id=body.agent_phone_number_id,
         )
 
     results = await asyncio.gather(*[call_one(cid) for cid in body.client_ids])

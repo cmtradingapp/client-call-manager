@@ -7,15 +7,22 @@ export function ClientTable() {
   const {
     results,
     selectedIds,
+    conversationIds,
     toggleSelected,
     selectAll,
     deselectAll,
     callStatuses,
     searchError,
     isSearching,
+    agentId,
+    setAgentId,
+    agentPhoneNumberId,
+    setAgentPhoneNumberId,
   } = useAppStore();
 
-  const allSelected = results.length > 0 && selectedIds.size === results.length;
+  const uncalledResults = results.filter((r) => !conversationIds[r.client_id]);
+  const allUncalledSelected =
+    uncalledResults.length > 0 && uncalledResults.every((r) => selectedIds.has(r.client_id));
 
   if (isSearching) {
     return (
@@ -45,6 +52,25 @@ export function ClientTable() {
 
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
+      {/* Agent settings */}
+      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-wrap gap-3 items-center">
+        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Agent Settings</span>
+        <input
+          type="text"
+          placeholder="Agent ID"
+          value={agentId}
+          onChange={(e) => setAgentId(e.target.value)}
+          className="flex-1 min-w-48 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <input
+          type="text"
+          placeholder="Agent Phone Number ID"
+          value={agentPhoneNumberId}
+          onChange={(e) => setAgentPhoneNumberId(e.target.value)}
+          className="flex-1 min-w-48 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <span className="text-sm text-gray-600">
@@ -62,8 +88,8 @@ export function ClientTable() {
               <th className="px-4 py-3 text-left">
                 <input
                   type="checkbox"
-                  checked={allSelected}
-                  onChange={allSelected ? deselectAll : selectAll}
+                  checked={allUncalledSelected}
+                  onChange={allUncalledSelected ? deselectAll : selectAll}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
               </th>
@@ -86,6 +112,7 @@ export function ClientTable() {
                 client={client}
                 selected={selectedIds.has(client.client_id)}
                 callStatus={(callStatuses[client.client_id] ?? 'idle') as CallStatusType}
+                conversationId={conversationIds[client.client_id]}
                 onToggle={() => toggleSelected(client.client_id)}
               />
             ))}

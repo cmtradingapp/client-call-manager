@@ -20,7 +20,13 @@ async def initiate_call(
     phone_number: str,
     first_name: Optional[str] = None,
     email: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    agent_phone_number_id: Optional[str] = None,
 ) -> ClientCallResult:
+    # Use values from request; fall back to config
+    effective_agent_id = agent_id or settings.elevenlabs_agent_id
+    effective_phone_id = agent_phone_number_id or settings.elevenlabs_agent_phone_number_id
+
     if settings.mock_mode:
         logger.info(f"[MOCK] Simulating outbound call to {phone_number} for {client_id}")
         return ClientCallResult(
@@ -32,8 +38,8 @@ async def initiate_call(
     try:
         numeric_id = int(client_id) if client_id.isdigit() else client_id
         payload = {
-            "agent_id": settings.elevenlabs_agent_id,
-            "agent_phone_number_id": settings.elevenlabs_agent_phone_number_id,
+            "agent_id": effective_agent_id,
+            "agent_phone_number_id": effective_phone_id,
             "to_number": phone_number,
             "conversation_initiation_client_data": {
                 "dynamic_variables": {

@@ -5,17 +5,8 @@ interface StatusBadgeProps {
 }
 
 function StatusBadge({ status }: StatusBadgeProps) {
-  const colors: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    inactive: 'bg-gray-100 text-gray-700',
-    pending: 'bg-yellow-100 text-yellow-800',
-  };
   return (
-    <span
-      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-        colors[status] ?? 'bg-gray-100 text-gray-700'
-      }`}
-    >
+    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
       {status}
     </span>
   );
@@ -23,9 +14,20 @@ function StatusBadge({ status }: StatusBadgeProps) {
 
 interface CallStatusBadgeProps {
   status: CallStatusType;
+  conversationId?: string;
 }
 
-function CallStatusBadge({ status }: CallStatusBadgeProps) {
+function CallStatusBadge({ status, conversationId }: CallStatusBadgeProps) {
+  if (conversationId) {
+    return (
+      <span
+        className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+        title={conversationId}
+      >
+        Called ✓
+      </span>
+    );
+  }
   if (status === 'idle') return null;
   const styles: Record<string, string> = {
     calling: 'bg-blue-100 text-blue-800',
@@ -48,14 +50,21 @@ interface ClientRowProps {
   client: ClientDetail;
   selected: boolean;
   callStatus: CallStatusType;
+  conversationId?: string;
   onToggle: () => void;
 }
 
-export function ClientRow({ client, selected, callStatus, onToggle }: ClientRowProps) {
+export function ClientRow({ client, selected, callStatus, conversationId, onToggle }: ClientRowProps) {
+  const alreadyCalled = !!conversationId;
+
   return (
     <tr
-      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-        selected ? 'bg-blue-50' : ''
+      className={`border-b border-gray-100 transition-colors ${
+        alreadyCalled
+          ? 'bg-gray-50 opacity-60'
+          : selected
+          ? 'bg-blue-50 hover:bg-blue-50'
+          : 'hover:bg-gray-50'
       }`}
     >
       <td className="px-4 py-3">
@@ -63,7 +72,8 @@ export function ClientRow({ client, selected, callStatus, onToggle }: ClientRowP
           type="checkbox"
           checked={selected}
           onChange={onToggle}
-          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          disabled={alreadyCalled}
+          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
         />
       </td>
       <td className="px-4 py-3 text-sm font-medium text-gray-900">{client.client_id}</td>
@@ -83,7 +93,7 @@ export function ClientRow({ client, selected, callStatus, onToggle }: ClientRowP
       </td>
       <td className="px-4 py-3 text-sm text-gray-600">{client.email ?? '—'}</td>
       <td className="px-4 py-3 text-sm">
-        <CallStatusBadge status={callStatus} />
+        <CallStatusBadge status={callStatus} conversationId={conversationId} />
       </td>
     </tr>
   );

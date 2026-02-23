@@ -25,9 +25,15 @@ export async function getStatuses(): Promise<SalesStatus[]> {
   return response.data;
 }
 
-export async function initiateCalls(clientIds: string[]): Promise<CallResponse> {
+export async function initiateCalls(
+  clientIds: string[],
+  agentId: string,
+  agentPhoneNumberId: string,
+): Promise<CallResponse> {
   const response = await api.post<CallResponse>('/calls/initiate', {
     client_ids: clientIds,
+    agent_id: agentId || undefined,
+    agent_phone_number_id: agentPhoneNumberId || undefined,
   });
   return response.data;
 }
