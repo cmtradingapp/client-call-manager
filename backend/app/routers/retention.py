@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,7 +13,7 @@ router = APIRouter()
 
 # Step 1: Pull all qualified accounts + their logins from MSSQL
 _MSSQL_ACCOUNTS_QUERY = """
-    SELECT a.accountid, vta.login
+    SELECT a.accountid, vta.login, a.client_qualification_date
     FROM report.ant_acc a
     INNER JOIN report.vtiger_trading_accounts vta
         ON a.accountid = vta.vtigeraccountid
@@ -42,11 +43,17 @@ async def get_retention_clients(
         if not rows:
             return {"total": 0, "page": page, "page_size": page_size, "clients": []}
 
-        # Build login → accountid map (account may have multiple logins)
+        # Build login → accountid map and accountid → qualification date
+        today = date.today()
         login_to_account: dict[int, str] = {}
+        account_qual_date: dict[str, date] = {}
         for r in rows:
             if r["login"] is not None:
-                login_to_account[int(r["login"])] = str(r["accountid"])
+                accountid = str(r["accountid"])
+                login_to_account[int(r["login"])] = accountid
+                if accountid not in account_qual_date and r["client_qualification_date"]:
+                    qd = r["client_qualification_date"]
+                    account_qual_date[accountid] = qd.date() if isinstance(qd, datetime) else qd
 
         logins = list(login_to_account.keys())
 
@@ -74,7 +81,14 @@ async def get_retention_clients(
             "total": total,
             "page": page,
             "page_size": page_size,
-            "clients": [{"accountid": aid, "trade_count": count} for aid, count in page_clients],
+            "clients": [
+                {
+                    "accountid": aid,
+                    "trade_count": count,
+                    "days_in_retention": (today - account_qual_date[aid]).days if aid in account_qual_date else None,
+                }
+                for aid, count in page_clients
+            ],
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Query failed: {e}")
