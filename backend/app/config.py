@@ -27,12 +27,19 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-this-to-a-random-secret"
     jwt_expire_hours: int = 8
 
-    # PostgreSQL
+    # PostgreSQL (local — users/roles)
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "backoffice"
     postgres_user: str = "backoffice"
     postgres_password: str = ""
+
+    # Replica PostgreSQL (external — read-only)
+    replica_db_host: str = ""
+    replica_db_port: int = 5432
+    replica_db_name: str = ""
+    replica_db_user: str = ""
+    replica_db_password: str = ""
 
     # CORS
     cors_origins: List[str] = ["http://localhost:5173", "http://localhost"]

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.history_db import init_history_db
 from app.pg_database import AsyncSessionLocal, init_pg
+from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     await init_history_db()
     await init_pg()
+    init_replica()
     async with AsyncSessionLocal() as session:
         await seed_admin(session)
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
