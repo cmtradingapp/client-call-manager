@@ -8,6 +8,7 @@ def _build_url() -> str:
     return (
         f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+        f"?ssl=disable"
     )
 
 
