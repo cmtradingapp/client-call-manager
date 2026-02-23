@@ -17,8 +17,10 @@ _DATA_QUERY = """
     LEFT JOIN report.dealio_mt4trades t
         ON t.login = vta.login
         AND t.cmd IN (0, 1)
+        AND t.symbol NOT IN ('Inactivity', 'ZeroingUSD', 'Spread')
     WHERE a.client_qualification_date IS NOT NULL
     GROUP BY a.accountid
+    HAVING COUNT(t.login) > 0
     ORDER BY a.accountid
     OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
 """
