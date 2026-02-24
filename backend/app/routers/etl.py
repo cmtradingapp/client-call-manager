@@ -145,15 +145,13 @@ async def incremental_sync_trades(
     log_id: int | None = None
     try:
         async with session_factory() as db:
-            result = await db.execute(text("SELECT MAX(last_modified) FROM trades_mt4"))
-            last_modified = result.scalar()
             log = EtlSyncLog(sync_type="trades_incremental", status="running")
             db.add(log)
             await db.commit()
             await db.refresh(log)
             log_id = log.id
 
-        cutoff = (last_modified or datetime.now(timezone.utc)) - timedelta(hours=3)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=3)
         total = 0
         offset = 0
 
@@ -330,38 +328,18 @@ async def _mssql_incremental_sync(
     log_id: int | None = None
     try:
         async with session_factory() as db:
-            result = await db.execute(text(f"SELECT MAX(modifiedtime) FROM {local_table}"))
-            last_modifiedtime = result.scalar()
             log = EtlSyncLog(sync_type=sync_type, status="running")
             db.add(log)
             await db.commit()
             await db.refresh(log)
             log_id = log.id
 
-        if last_modifiedtime is None:
-            async with session_factory() as db:
-                log = await db.get(EtlSyncLog, log_id)
-                if log:
-                    log.status = "completed"
-                    log.rows_synced = 0
-                    log.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
-            return
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
 
-        if window_minutes is not None:
-            # Fetch a fixed window: between (lookback - window) and lookback
-            window_end = last_modifiedtime - timedelta(hours=lookback_hours)
-            window_start = window_end - timedelta(minutes=window_minutes)
-            rows = await execute_query(
-                f"{mssql_select} WHERE {timestamp_col} BETWEEN ? AND ? ORDER BY {timestamp_col}",
-                (window_start, window_end),
-            )
-        else:
-            cutoff = last_modifiedtime - timedelta(hours=lookback_hours)
-            rows = await execute_query(
-                f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
-                (cutoff,),
-            )
+        rows = await execute_query(
+            f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
+            (cutoff,),
+        )
         if rows:
             async with session_factory() as db:
                 await db.execute(text(upsert_sql), [row_mapper(r) for r in rows])
@@ -592,10 +570,10 @@ async def sync_status(
             return None
         return {"id": str(row[0]), "modified": row[1].isoformat() if row[1] else None}
 
-    trades_last = _last_row((await db.execute(text("SELECT ticket, last_modified FROM trades_mt4 ORDER BY last_modified DESC NULLS LAST LIMIT 1"))).first())
-    ant_acc_last = _last_row((await db.execute(text("SELECT accountid, modifiedtime FROM ant_acc ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
-    vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
-    mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    trades_last = _last_row((await db.execute(text("SELECT ticket, last_modified FROM trades_mt4 WHERE last_modified <= NOW() ORDER BY last_modified DESC NULLS LAST LIMIT 1"))).first())
+    ant_acc_last = _last_row((await db.execute(text("SELECT accountid, modifiedtime FROM ant_acc WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,
