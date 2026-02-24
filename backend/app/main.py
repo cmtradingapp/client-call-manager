@@ -63,9 +63,6 @@ async def lifespan(app: FastAPI):
         await session.commit()
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:
-        # Drop old trades indexes and rebuild with correct covering columns (symbol added)
-        await session.execute(_text("DROP INDEX IF EXISTS ix_trades_mt4_login_cmd"))
-        await session.execute(_text("DROP INDEX IF EXISTS ix_trades_mt4_login_cmd_cov"))
         # Covering index for retention query: filters on (login, cmd, symbol), reads notional_value, open_time, close_time
         await session.execute(_text(
             "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd_cov ON trades_mt4 (login, cmd) INCLUDE (symbol, notional_value, close_time, open_time)"
