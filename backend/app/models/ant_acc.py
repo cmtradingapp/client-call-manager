@@ -10,4 +10,7 @@ class AntAcc(Base):
     client_qualification_date = Column(Date, nullable=True)
     modifiedtime = Column(DateTime(timezone=False), nullable=True)
 
-    __table_args__ = (Index("ix_ant_acc_modifiedtime", "modifiedtime"),)
+    __table_args__ = (
+        Index("ix_ant_acc_modifiedtime", "modifiedtime"),
+        Index("ix_ant_acc_qual_date", "client_qualification_date"),
+    )

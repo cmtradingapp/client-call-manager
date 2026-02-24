@@ -43,6 +43,19 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS profit NUMERIC(18,2)"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS close_time TIMESTAMP"))
         await session.commit()
+    # Create performance indexes if missing (covers existing deployments)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd ON trades_mt4 (login, cmd) INCLUDE (profit, close_time)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_close_time ON trades_mt4 (close_time)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_ant_acc_qual_date ON ant_acc (client_qualification_date)"
+        ))
+        await session.commit()
+    logger.info("Performance indexes created/verified")
     # Migrate vtiger_mttransactions column names if table exists with old schema
     async with AsyncSessionLocal() as session:
         await session.execute(_text("""

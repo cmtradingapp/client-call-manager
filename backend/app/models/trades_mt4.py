@@ -12,4 +12,8 @@ class TradesMt4(Base):
     profit = Column(Numeric(18, 2), nullable=True)
     close_time = Column(DateTime(timezone=False), nullable=True)
 
-    __table_args__ = (Index("ix_trades_mt4_login", "login"),)
+    __table_args__ = (
+        Index("ix_trades_mt4_login", "login"),
+        Index("ix_trades_mt4_login_cmd", "login", "cmd"),
+        Index("ix_trades_mt4_close_time", "close_time"),
+    )
