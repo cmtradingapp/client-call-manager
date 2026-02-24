@@ -483,6 +483,55 @@ async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Daily midnight full sync — all tables
+# ---------------------------------------------------------------------------
+
+async def _create_log(sync_type: str) -> int:
+    async with AsyncSessionLocal() as db:
+        log = EtlSyncLog(sync_type=sync_type, status="running")
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        return log.id
+
+
+async def daily_full_sync_all() -> None:
+    logger.info("Daily full sync starting")
+    from app.replica_database import _ReplicaSession
+
+    # trades (only if replica is available)
+    if _ReplicaSession is not None:
+        if not await _is_running("trades"):
+            log_id = await _create_log("trades_full")
+            await _run_full_sync_trades(log_id)
+        else:
+            logger.info("Daily sync: trades already running, skipped")
+
+    # ant_acc
+    if not await _is_running("ant_acc"):
+        log_id = await _create_log("ant_acc_full")
+        await _run_full_sync_ant_acc(log_id)
+    else:
+        logger.info("Daily sync: ant_acc already running, skipped")
+
+    # vtiger_trading_accounts
+    if not await _is_running("vta"):
+        log_id = await _create_log("vta_full")
+        await _run_full_sync_vta(log_id)
+    else:
+        logger.info("Daily sync: vta already running, skipped")
+
+    # vtiger_mttransactions
+    if not await _is_running("mtt"):
+        log_id = await _create_log("mtt_full")
+        await _run_full_sync_mtt(log_id)
+    else:
+        logger.info("Daily sync: mtt already running, skipped")
+
+    logger.info("Daily full sync complete")
+
+
+# ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
 

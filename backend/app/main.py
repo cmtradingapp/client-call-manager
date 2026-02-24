@@ -12,7 +12,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import incremental_sync_ant_acc, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -91,8 +91,14 @@ async def lifespan(app: FastAPI):
             minutes=5,
             args=[AsyncSessionLocal, _ReplicaSession],
         )
+    scheduler.add_job(
+        daily_full_sync_all,
+        "cron",
+        hour=0,
+        minute=0,
+    )
     scheduler.start()
-    logger.info("ETL scheduler started — incremental sync every 5 minutes")
+    logger.info("ETL scheduler started — incremental sync every 5 minutes, daily full sync at midnight")
 
     yield
 
