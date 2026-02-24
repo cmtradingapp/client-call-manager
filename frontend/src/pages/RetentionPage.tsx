@@ -10,39 +10,49 @@ api.interceptors.request.use((config) => {
 });
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'trade_count' | 'days_in_retention' | 'total_profit' | 'active' | 'active_ftd';
+type SortCol = 'accountid' | 'client_qualification_date' | 'trade_count' | 'days_in_retention' | 'total_profit' | 'last_trade_date' | 'active' | 'active_ftd';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
 interface RetentionClient {
   accountid: string;
+  client_qualification_date: string | null;
   trade_count: number;
   days_in_retention: number | null;
   total_profit: number;
+  last_trade_date: string | null;
   active: boolean;
   active_ftd: boolean;
 }
 
 interface Filters {
   accountid: string;
+  qual_date_from: string;
+  qual_date_to: string;
   trade_count_op: NumOp;
   trade_count_val: string;
   days_op: NumOp;
   days_val: string;
   profit_op: NumOp;
   profit_val: string;
+  last_trade_from: string;
+  last_trade_to: string;
   active: BoolFilter;
   active_ftd: BoolFilter;
 }
 
 const EMPTY_FILTERS: Filters = {
   accountid: '',
+  qual_date_from: '',
+  qual_date_to: '',
   trade_count_op: '',
   trade_count_val: '',
   days_op: '',
   days_val: '',
   profit_op: '',
   profit_val: '',
+  last_trade_from: '',
+  last_trade_to: '',
   active: '',
   active_ftd: '',
 };
@@ -50,9 +60,13 @@ const EMPTY_FILTERS: Filters = {
 function countActive(f: Filters) {
   return [
     f.accountid,
+    f.qual_date_from,
+    f.qual_date_to,
     f.trade_count_op && f.trade_count_val,
     f.days_op && f.days_val,
     f.profit_op && f.profit_val,
+    f.last_trade_from,
+    f.last_trade_to,
     f.active,
     f.active_ftd,
   ].filter(Boolean).length;
@@ -106,6 +120,11 @@ function BoolBadge({ value }: { value: boolean }) {
     : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">No</span>;
 }
 
+function formatDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString();
+}
+
 export function RetentionPage() {
   const [data, setData] = useState<{ total: number; clients: RetentionClient[] } | null>(null);
   const [page, setPage] = useState(1);
@@ -125,9 +144,13 @@ export function RetentionPage() {
         params: {
           page: p, page_size: PAGE_SIZE, sort_by: col, sort_dir: dir,
           accountid: f.accountid,
+          qual_date_from: f.qual_date_from || undefined,
+          qual_date_to: f.qual_date_to || undefined,
           trade_count_op: f.trade_count_op, trade_count_val: f.trade_count_val || undefined,
           days_op: f.days_op, days_val: f.days_val || undefined,
           profit_op: f.profit_op, profit_val: f.profit_val || undefined,
+          last_trade_from: f.last_trade_from || undefined,
+          last_trade_to: f.last_trade_to || undefined,
           active: f.active, active_ftd: f.active_ftd,
         },
       });
@@ -178,12 +201,37 @@ export function RetentionPage() {
                 <input type="text" value={draft.accountid} onChange={(e) => setField('accountid', e.target.value)}
                   placeholder="Contains…" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
+
+              {/* Qualification Date range */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Qualification Date</label>
+                <div className="flex items-center gap-2">
+                  <input type="date" value={draft.qual_date_from} onChange={(e) => setField('qual_date_from', e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <span className="text-xs text-gray-400">to</span>
+                  <input type="date" value={draft.qual_date_to} onChange={(e) => setField('qual_date_to', e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+
               <NumericFilter label="Trade Count" op={draft.trade_count_op} val={draft.trade_count_val}
                 onOp={(v) => setField('trade_count_op', v)} onVal={(v) => setField('trade_count_val', v)} />
               <NumericFilter label="Days in Retention" op={draft.days_op} val={draft.days_val}
                 onOp={(v) => setField('days_op', v)} onVal={(v) => setField('days_val', v)} />
               <NumericFilter label="Total Profit" op={draft.profit_op} val={draft.profit_val}
                 onOp={(v) => setField('profit_op', v)} onVal={(v) => setField('profit_val', v)} />
+              {/* Last Trade Date range */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Last Trade Date</label>
+                <div className="flex items-center gap-2">
+                  <input type="date" value={draft.last_trade_from} onChange={(e) => setField('last_trade_from', e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <span className="text-xs text-gray-400">to</span>
+                  <input type="date" value={draft.last_trade_to} onChange={(e) => setField('last_trade_to', e.target.value)}
+                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+
               <BoolSelect label="Active (trade in last 7d)" value={draft.active} onChange={(v) => setField('active', v)} />
               <BoolSelect label="Active FTD (qualified + trade in last 7d)" value={draft.active_ftd} onChange={(v) => setField('active_ftd', v)} />
             </div>
@@ -217,27 +265,31 @@ export function RetentionPage() {
             <thead className="bg-gray-50 sticky top-0">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('client_qualification_date')}>Qualification Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('trade_count')}>Trade Count <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('days_in_retention')}>Days in Retention <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('last_trade_date')}>Last Trade Date <SortIcon col="last_trade_date" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.accountid}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
                     <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {c.total_profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.last_trade_date)}</td>
                     <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
                     <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
                   </tr>

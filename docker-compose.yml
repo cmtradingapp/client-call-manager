@@ -8,6 +8,9 @@ services:
     volumes:
       - call_history_data:/app/data
       - ./backend/certs:/app/certs:ro
+    networks:
+      - default
+      - igalc_default
     restart: unless-stopped
 
   frontend:
@@ -20,3 +23,8 @@ services:
 
 volumes:
   call_history_data:
+
+networks:
+  default: {}
+  igalc_default:
+    external: true

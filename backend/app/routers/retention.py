@@ -11,9 +11,11 @@ router = APIRouter()
 
 _SORT_COLS = {
     "accountid": "a.accountid",
+    "client_qualification_date": "a.client_qualification_date",
     "trade_count": "trade_count",
     "days_in_retention": "days_in_retention",
     "total_profit": "total_profit",
+    "last_trade_date": "last_trade_date",
     "active": "active",
     "active_ftd": "active_ftd",
 }
@@ -40,6 +42,12 @@ async def get_retention_clients(
     days_val: float | None = Query(None),
     profit_op: str = Query(""),
     profit_val: float | None = Query(None),
+    # date range filter
+    qual_date_from: str = Query(""),   # YYYY-MM-DD
+    qual_date_to: str = Query(""),     # YYYY-MM-DD
+    # last trade date range
+    last_trade_from: str = Query(""),  # YYYY-MM-DD
+    last_trade_to: str = Query(""),    # YYYY-MM-DD
     # boolean filters
     active: str = Query(""),        # "true" | "false" | ""
     active_ftd: str = Query(""),    # "true" | "false" | ""
@@ -57,6 +65,13 @@ async def get_retention_clients(
         if accountid:
             where.append("a.accountid ILIKE :accountid_pattern")
             params["accountid_pattern"] = f"%{accountid}%"
+
+        if qual_date_from:
+            where.append("a.client_qualification_date >= :qual_date_from")
+            params["qual_date_from"] = qual_date_from
+        if qual_date_to:
+            where.append("a.client_qualification_date <= :qual_date_to")
+            params["qual_date_to"] = qual_date_to
 
         if days_op and days_val is not None:
             cond = _num_cond(days_op, "(CURRENT_DATE - a.client_qualification_date)", "days_val")
@@ -78,6 +93,13 @@ async def get_retention_clients(
 
         _active_expr = "COALESCE(BOOL_OR(t.close_time IS NOT NULL AND t.close_time > CURRENT_DATE - INTERVAL '7 days'), false)"
         _ftd_expr = f"(a.client_qualification_date > CURRENT_DATE - INTERVAL '7 days' AND {_active_expr})"
+
+        if last_trade_from:
+            having.append("MAX(t.close_time) >= :last_trade_from")
+            params["last_trade_from"] = last_trade_from
+        if last_trade_to:
+            having.append("MAX(t.close_time) <= :last_trade_to")
+            params["last_trade_to"] = last_trade_to
 
         if active == "true":
             having.append(f"{_active_expr} = true")
@@ -115,6 +137,7 @@ async def get_retention_clients(
                     (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
                     COUNT(t.ticket) AS trade_count,
                     COALESCE(SUM(t.profit), 0) AS total_profit,
+                    MAX(t.close_time) AS last_trade_date,
                     {_active_expr} AS active,
                     {_ftd_expr} AS active_ftd
                 {base}
@@ -132,9 +155,11 @@ async def get_retention_clients(
             "clients": [
                 {
                     "accountid": str(r["accountid"]),
+                    "client_qualification_date": r["client_qualification_date"].isoformat() if r["client_qualification_date"] else None,
                     "trade_count": int(r["trade_count"]),
                     "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
                     "total_profit": float(r["total_profit"]),
+                    "last_trade_date": r["last_trade_date"].isoformat() if r["last_trade_date"] else None,
                     "active": bool(r["active"]),
                     "active_ftd": bool(r["active_ftd"]),
                 }
