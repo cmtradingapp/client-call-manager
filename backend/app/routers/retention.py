@@ -1,4 +1,3 @@
-from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,27 +5,30 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import get_current_user
-from app.database import execute_query
 from app.pg_database import get_db
 
 router = APIRouter()
 
-# Step 1: Pull all qualified accounts + their logins from MSSQL
-_MSSQL_ACCOUNTS_QUERY = """
-    SELECT a.accountid, vta.login, a.client_qualification_date
-    FROM report.ant_acc a
-    INNER JOIN report.vtiger_trading_accounts vta
-        ON a.accountid = vta.vtigeraccountid
+_CLIENTS_QUERY = """
+    SELECT
+        a.accountid,
+        a.client_qualification_date,
+        (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
+        COUNT(t.ticket) AS trade_count
+    FROM ant_acc a
+    INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
+    LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
     WHERE a.client_qualification_date IS NOT NULL
+    GROUP BY a.accountid, a.client_qualification_date
+    ORDER BY a.accountid
+    LIMIT :limit OFFSET :offset
 """
 
-# Step 2: Count trades per login from local mirror
-_LOCAL_TRADES_QUERY = """
-    SELECT login, COUNT(*) AS trade_count
-    FROM trades_mt4
-    WHERE cmd IN (0, 1)
-      AND login = ANY(:logins)
-    GROUP BY login
+_COUNT_QUERY = """
+    SELECT COUNT(DISTINCT a.accountid)
+    FROM ant_acc a
+    INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
+    WHERE a.client_qualification_date IS NOT NULL
 """
 
 
@@ -38,44 +40,14 @@ async def get_retention_clients(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        # 1. Fetch qualified accounts + logins from MSSQL
-        rows = await execute_query(_MSSQL_ACCOUNTS_QUERY)
-        if not rows:
-            return {"total": 0, "page": page, "page_size": page_size, "clients": []}
+        total_result = await db.execute(text(_COUNT_QUERY))
+        total = total_result.scalar() or 0
 
-        # Build login → accountid map and accountid → qualification date
-        today = date.today()
-        login_to_account: dict[int, str] = {}
-        account_qual_date: dict[str, date] = {}
-        for r in rows:
-            if r["login"] is not None:
-                accountid = str(r["accountid"])
-                login_to_account[int(r["login"])] = accountid
-                if accountid not in account_qual_date and r["client_qualification_date"]:
-                    qd = r["client_qualification_date"]
-                    account_qual_date[accountid] = qd.date() if isinstance(qd, datetime) else qd
-
-        logins = list(login_to_account.keys())
-
-        # 2. Count trades per login from local mirror
         result = await db.execute(
-            text(_LOCAL_TRADES_QUERY),
-            {"logins": logins},
+            text(_CLIENTS_QUERY),
+            {"limit": page_size, "offset": (page - 1) * page_size},
         )
-        trade_rows = result.mappings().all()
-
-        # 3. Merge: sum trade counts per account across all logins
-        account_trades: dict[str, int] = {}
-        for tr in trade_rows:
-            login = int(tr["login"])
-            accountid = login_to_account.get(login)
-            if accountid:
-                account_trades[accountid] = account_trades.get(accountid, 0) + int(tr["trade_count"])
-
-        # 4. Sort by accountid and paginate in Python
-        sorted_clients = sorted(account_trades.items())
-        total = len(sorted_clients)
-        page_clients = sorted_clients[(page - 1) * page_size: page * page_size]
+        rows = result.mappings().all()
 
         return {
             "total": total,
@@ -83,11 +55,11 @@ async def get_retention_clients(
             "page_size": page_size,
             "clients": [
                 {
-                    "accountid": aid,
-                    "trade_count": count,
-                    "days_in_retention": (today - account_qual_date[aid]).days if aid in account_qual_date else None,
+                    "accountid": str(r["accountid"]),
+                    "trade_count": int(r["trade_count"]),
+                    "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
                 }
-                for aid, count in page_clients
+                for r in rows
             ],
         }
     except Exception as e:
