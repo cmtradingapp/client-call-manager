@@ -15,7 +15,7 @@ from app.replica_database import get_replica_db
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_TRADES_BATCH_SIZE = 50_000
+_TRADES_BATCH_SIZE = 100_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
 _TRADES_INSERT = (
