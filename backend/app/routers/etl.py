@@ -47,6 +47,16 @@ async def _update_log(log_id: int, status: str, rows_synced: int | None = None, 
             await db.commit()
 
 
+async def _is_running(prefix: str) -> bool:
+    """Return True if any sync for this table prefix is already running."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            text("SELECT 1 FROM etl_sync_log WHERE sync_type LIKE :prefix AND status = 'running' LIMIT 1"),
+            {"prefix": f"{prefix}%"},
+        )
+        return result.first() is not None
+
+
 # ---------------------------------------------------------------------------
 # Trades (dealio.trades_mt4) — full sync
 # ---------------------------------------------------------------------------
@@ -107,6 +117,9 @@ async def incremental_sync_trades(
     session_factory: async_sessionmaker,
     replica_session_factory: async_sessionmaker,
 ) -> None:
+    if await _is_running("trades"):
+        logger.info("ETL trades: skipping scheduled run — sync already in progress")
+        return
     log_id: int | None = None
     try:
         async with session_factory() as db:
@@ -233,6 +246,9 @@ async def _run_full_sync_ant_acc(log_id: int) -> None:
 
 async def incremental_sync_ant_acc(session_factory: async_sessionmaker) -> None:
     """Scheduled full refresh for ant_acc (avoids timezone comparison issues)."""
+    if await _is_running("ant_acc"):
+        logger.info("ETL ant_acc: skipping scheduled run — sync already in progress")
+        return
     log_id: int | None = None
     try:
         async with session_factory() as db:
@@ -421,6 +437,9 @@ async def _run_full_sync_vta(log_id: int) -> None:
 
 async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
     """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
+    if await _is_running("vta"):
+        logger.info("ETL vta: skipping scheduled run — sync already in progress")
+        return
     async with session_factory() as db:
         log = EtlSyncLog(sync_type="vta_incremental", status="running")
         db.add(log)
@@ -451,6 +470,9 @@ async def _run_full_sync_mtt(log_id: int) -> None:
 
 async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
     """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
+    if await _is_running("mtt"):
+        logger.info("ETL mtt: skipping scheduled run — sync already in progress")
+        return
     async with session_factory() as db:
         log = EtlSyncLog(sync_type="mtt_incremental", status="running")
         db.add(log)
