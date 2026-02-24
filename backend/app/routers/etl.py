@@ -587,11 +587,25 @@ async def sync_status(
     vta_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_trading_accounts"))).scalar() or 0
     mtt_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_mttransactions"))).scalar() or 0
 
+    def _last_row(row) -> dict | None:
+        if row is None:
+            return None
+        return {"id": str(row[0]), "modified": row[1].isoformat() if row[1] else None}
+
+    trades_last = _last_row((await db.execute(text("SELECT ticket, last_modified FROM trades_mt4 ORDER BY last_modified DESC NULLS LAST LIMIT 1"))).first())
+    ant_acc_last = _last_row((await db.execute(text("SELECT accountid, modifiedtime FROM ant_acc ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+
     return {
         "trades_row_count": trades_count,
         "ant_acc_row_count": ant_acc_count,
         "vta_row_count": vta_count,
         "mtt_row_count": mtt_count,
+        "trades_last": trades_last,
+        "ant_acc_last": ant_acc_last,
+        "vta_last": vta_last,
+        "mtt_last": mtt_last,
         "logs": [
             {
                 "id": r["id"],

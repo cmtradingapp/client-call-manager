@@ -39,6 +39,7 @@ function calcDuration(log: SyncLog) {
 function SyncSection({
   source,
   rowCount,
+  lastRecord,
   description,
   syncEndpoint,
   logs,
@@ -46,6 +47,7 @@ function SyncSection({
 }: {
   source: string;
   rowCount: number | null;
+  lastRecord: { id: string; modified: string | null } | null;
   description: string;
   syncEndpoint: string;
   logs: SyncLog[];
@@ -73,7 +75,7 @@ function SyncSection({
   return (
     <div className="space-y-3">
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow px-4 py-3">
           <p className="text-xs text-gray-500 mb-0.5">Local Rows</p>
           <p className="text-xl font-bold text-gray-800">{rowCount?.toLocaleString() ?? '—'}</p>
@@ -85,6 +87,11 @@ function SyncSection({
         <div className="bg-white rounded-lg shadow px-4 py-3">
           <p className="text-xs text-gray-500 mb-0.5">Last Synced</p>
           <p className="text-sm font-semibold text-gray-800">{formatDate(lastCompleted?.completed_at ?? null)}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow px-4 py-3">
+          <p className="text-xs text-gray-500 mb-0.5">Last Record ID</p>
+          <p className="text-sm font-bold text-gray-800 truncate">{lastRecord?.id ?? '—'}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{lastRecord?.modified ? formatDate(lastRecord.modified) : '—'}</p>
         </div>
       </div>
 
@@ -151,11 +158,20 @@ function SyncSection({
   );
 }
 
+interface LastRecord {
+  id: string;
+  modified: string | null;
+}
+
 interface StatusData {
   trades_row_count: number;
   ant_acc_row_count: number;
   vta_row_count: number;
   mtt_row_count: number;
+  trades_last: LastRecord | null;
+  ant_acc_last: LastRecord | null;
+  vta_last: LastRecord | null;
+  mtt_last: LastRecord | null;
   logs: SyncLog[];
 }
 
@@ -182,10 +198,10 @@ export function ETLPage() {
   );
 
   const sections = [
-    { key: 'trades', label: 'Trades', source: 'dealio.trades_mt4', endpoint: '/etl/sync-trades', count: data?.trades_row_count ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 5 min using ticket cursor.' },
-    { key: 'ant_acc', label: 'Accounts', source: 'report.ant_acc', endpoint: '/etl/sync-ant-acc', count: data?.ant_acc_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
-    { key: 'vta', label: 'Trading Accounts', source: 'report.vtiger_trading_accounts', endpoint: '/etl/sync-vta', count: data?.vta_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
-    { key: 'mtt', label: 'MT Transactions', source: 'report.vtiger_mttransactions', endpoint: '/etl/sync-mtt', count: data?.mtt_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
+    { key: 'trades', label: 'Trades', source: 'dealio.trades_mt4', endpoint: '/etl/sync-trades', count: data?.trades_row_count ?? null, last: data?.trades_last ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 30 min using last_modified (3h lookback).' },
+    { key: 'ant_acc', label: 'Accounts', source: 'report.ant_acc', endpoint: '/etl/sync-ant-acc', count: data?.ant_acc_row_count ?? null, last: data?.ant_acc_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },
+    { key: 'vta', label: 'Trading Accounts', source: 'report.vtiger_trading_accounts', endpoint: '/etl/sync-vta', count: data?.vta_row_count ?? null, last: data?.vta_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using last_update (3h lookback).' },
+    { key: 'mtt', label: 'MT Transactions', source: 'report.vtiger_mttransactions', endpoint: '/etl/sync-mtt', count: data?.mtt_row_count ?? null, last: data?.mtt_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },
   ];
 
   return (
@@ -196,6 +212,7 @@ export function ETLPage() {
           <SyncSection
             source={s.source}
             rowCount={s.count}
+            lastRecord={s.last}
             description={s.desc}
             syncEndpoint={s.endpoint}
             logs={filter(s.key)}
