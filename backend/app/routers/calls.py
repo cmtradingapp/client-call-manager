@@ -1,10 +1,12 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth_deps import get_current_user
 from app.config import settings
 from app.history_db import insert_call_history
 from app.models.call_mapping import CallMapping
@@ -85,3 +87,76 @@ async def get_call_history(
     except Exception as e:
         logger.error(f"Failed to fetch ElevenLabs conversations: {e}")
         raise HTTPException(status_code=502, detail="Failed to fetch call history from ElevenLabs")
+
+
+@router.get("/calls/dashboard")
+async def get_calls_dashboard(
+    request: Request,
+    days: int = Query(30, ge=0),
+    _: Any = Depends(get_current_user),
+) -> dict:
+    http_client = request.app.state.http_client
+    cutoff_unix = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp()) if days > 0 else 0
+
+    agent_stats: dict[str, dict] = {}
+    cursor = None
+    total_calls = 0
+
+    for _ in range(100):  # max 100 pages = 10,000 conversations
+        params: dict[str, Any] = {"page_size": 100}
+        if cursor:
+            params["cursor"] = cursor
+        try:
+            response = await http_client.get(
+                "https://api.elevenlabs.io/v1/convai/conversations",
+                params=params,
+                headers={"xi-api-key": settings.elevenlabs_api_key},
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch from ElevenLabs: {e}")
+
+        conversations = data.get("conversations", [])
+        stop = False
+        for conv in conversations:
+            if cutoff_unix and (conv.get("start_time_unix_secs") or 0) < cutoff_unix:
+                stop = True
+                continue
+            agent_id = conv.get("agent_id") or "unknown"
+            agent_name = conv.get("agent_name") or agent_id
+            status = conv.get("call_successful") or "unknown"
+            duration = conv.get("call_duration_secs") or 0
+
+            if agent_id not in agent_stats:
+                agent_stats[agent_id] = {"agent_id": agent_id, "agent_name": agent_name, "statuses": {}}
+            if conv.get("agent_name"):
+                agent_stats[agent_id]["agent_name"] = agent_name
+            s = agent_stats[agent_id]["statuses"]
+            if status not in s:
+                s[status] = {"count": 0, "duration_secs": 0}
+            s[status]["count"] += 1
+            s[status]["duration_secs"] += duration
+            total_calls += 1
+
+        if stop or not data.get("has_more") or not conversations:
+            break
+        cursor = data.get("next_cursor")
+
+    result = []
+    for stats in agent_stats.values():
+        statuses = stats["statuses"]
+        row: dict[str, Any] = {
+            "agent_id": stats["agent_id"],
+            "agent_name": stats["agent_name"],
+            "total_calls": sum(s["count"] for s in statuses.values()),
+            "total_duration_mins": round(sum(s["duration_secs"] for s in statuses.values()) / 60, 1),
+        }
+        for key in ("success", "failure", "unknown"):
+            sd = statuses.get(key, {"count": 0, "duration_secs": 0})
+            row[f"{key}_count"] = sd["count"]
+            row[f"{key}_duration_mins"] = round(sd["duration_secs"] / 60, 1)
+        result.append(row)
+
+    result.sort(key=lambda x: x["total_calls"], reverse=True)
+    return {"agents": result, "total_calls": total_calls}
