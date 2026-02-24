@@ -37,7 +37,6 @@ function duration(log: SyncLog) {
 }
 
 function SyncSection({
-  title,
   source,
   rowCount,
   description,
@@ -45,7 +44,6 @@ function SyncSection({
   logs,
   onSync,
 }: {
-  title: string;
   source: string;
   rowCount: number | null;
   description: string;
@@ -170,7 +168,6 @@ export function ETLPage() {
       <div>
         <h2 className="text-base font-semibold text-gray-700 mb-4">Trades — dealio.trades_mt4</h2>
         <SyncSection
-          title="Trades"
           source="dealio.trades_mt4"
           rowCount={tradesCount}
           description="Truncates the local trades_mt4 table and re-imports all rows from the dealio replica. Use for initial load or to fix data issues."
@@ -183,7 +180,6 @@ export function ETLPage() {
       <div>
         <h2 className="text-base font-semibold text-gray-700 mb-4">Accounts — report.ant_acc</h2>
         <SyncSection
-          title="Accounts"
           source="report.ant_acc"
           rowCount={antAccCount}
           description="Truncates the local ant_acc table and re-imports all rows from MSSQL. Incremental sync runs every 5 minutes using modifiedtime."
