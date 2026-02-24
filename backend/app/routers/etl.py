@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _TRADES_BATCH_SIZE = 100_000
-_ANT_ACC_BATCH_SIZE = 5_000
+_ANT_ACC_BATCH_SIZE = 100_000
 
 _TRADES_INSERT = (
     "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time, symbol)"
@@ -283,7 +283,7 @@ async def _mssql_full_sync(
     local_table: str,
     upsert_sql: str,
     row_mapper,
-    batch_size: int = 5_000,
+    batch_size: int = 100_000,
 ) -> None:
     try:
         async with AsyncSessionLocal() as db:
