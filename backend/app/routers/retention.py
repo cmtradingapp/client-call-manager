@@ -41,7 +41,7 @@ WITH trades_agg AS (
         COALESCE(SUM(t.notional_value), 0) AS total_profit,
         MAX(t.open_time) AS last_trade_date,
         MAX(t.close_time) AS last_close_time,
-        COALESCE(BOOL_OR(t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '7 days'), false) AS has_recent_trade
+        COALESCE(BOOL_OR(t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '35 days'), false) AS has_recent_trade
     FROM vtiger_trading_accounts vta2
     LEFT JOIN trades_mt4 t ON t.login = vta2.login AND t.cmd IN (0, 1)
     GROUP BY vta2.vtigeraccountid
@@ -53,7 +53,7 @@ deposits_agg AS (
         COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
         COALESCE(BOOL_OR(
             mtt.confirmation_time IS NOT NULL
-            AND mtt.confirmation_time > CURRENT_DATE - INTERVAL '7 days'
+            AND mtt.confirmation_time > CURRENT_DATE - INTERVAL '35 days'
         ), false) AS has_recent_deposit
     FROM vtiger_trading_accounts vta3
     LEFT JOIN vtiger_mttransactions mtt ON mtt.login = vta3.login
@@ -122,7 +122,10 @@ async def get_retention_clients(
         sort_col = _SORT_COLS.get(sort_by, "a.accountid")
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
-        where: list[str] = ["a.client_qualification_date IS NOT NULL"]
+        where: list[str] = [
+            "a.client_qualification_date IS NOT NULL",
+            "a.client_qualification_date >= '2024-01-01'",
+        ]
         params: dict = {}
 
         if accountid:
