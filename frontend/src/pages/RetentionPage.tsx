@@ -11,6 +11,8 @@ api.interceptors.request.use((config) => {
 
 const PAGE_SIZE = 50;
 
+type SortCol = 'accountid' | 'trade_count' | 'days_in_retention' | 'total_profit';
+
 interface RetentionClient {
   accountid: string;
   trade_count: number;
@@ -25,18 +27,27 @@ interface RetentionResponse {
   clients: RetentionClient[];
 }
 
+function SortIcon({ col, sortBy, sortDir }: { col: SortCol; sortBy: SortCol; sortDir: 'asc' | 'desc' }) {
+  if (sortBy !== col) return <span className="ml-1 text-gray-300">↕</span>;
+  return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+}
+
 export function RetentionPage() {
   const [data, setData] = useState<RetentionResponse | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [sortBy, setSortBy] = useState<SortCol>('accountid');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const load = async (p: number) => {
+  const load = async (p: number, s: string, col: SortCol, dir: 'asc' | 'desc') => {
     setLoading(true);
     setError('');
     try {
       const res = await api.get('/retention/clients', {
-        params: { page: p, page_size: PAGE_SIZE },
+        params: { page: p, page_size: PAGE_SIZE, search: s, sort_by: col, sort_dir: dir },
       });
       setData(res.data);
     } catch (err: any) {
@@ -46,21 +57,63 @@ export function RetentionPage() {
     }
   };
 
-  useEffect(() => { load(page); }, [page]);
+  useEffect(() => { load(page, search, sortBy, sortDir); }, [page, search, sortBy, sortDir]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearch(searchInput);
+    setPage(1);
+  };
+
+  const handleSort = (col: SortCol) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDir('asc');
+    }
+    setPage(1);
+  };
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
+  const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100';
+  const thClassRight = 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100';
+
   return (
     <div className="space-y-4">
-      {/* Stats bar */}
-      {data && !loading && (
-        <div className="bg-white rounded-lg shadow px-5 py-3 flex items-center gap-6">
-          <div>
-            <p className="text-2xl font-bold text-gray-800">{data.total.toLocaleString()}</p>
-            <p className="text-xs text-gray-500">Qualified Accounts</p>
-          </div>
-        </div>
-      )}
+      {/* Search + stats bar */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search account ID…"
+            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
+          />
+          <button
+            type="submit"
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+          >
+            Search
+          </button>
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setSearchInput(''); setPage(1); }}
+              className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-md"
+            >
+              Clear
+            </button>
+          )}
+        </form>
+        {data && !loading && (
+          <p className="text-sm text-gray-500">
+            {data.total.toLocaleString()} {search ? 'matching' : 'qualified'} accounts
+          </p>
+        )}
+      </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
@@ -98,24 +151,28 @@ export function RetentionPage() {
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account ID</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trade Count</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days in Retention</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Profit</th>
+                <th className={thClass} onClick={() => handleSort('accountid')}>
+                  Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} />
+                </th>
+                <th className={thClass} onClick={() => handleSort('trade_count')}>
+                  Trade Count <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} />
+                </th>
+                <th className={thClass} onClick={() => handleSort('days_in_retention')}>
+                  Days in Retention <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} />
+                </th>
+                <th className={thClassRight} onClick={() => handleSort('total_profit')}>
+                  Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} />
+                </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">
-                    Loading…
-                  </td>
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td>
                 </tr>
               ) : !data || data.clients.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">
-                    No qualified accounts found.
-                  </td>
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">No qualified accounts found.</td>
                 </tr>
               ) : (
                 data.clients.map((c) => (

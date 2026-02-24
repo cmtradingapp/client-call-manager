@@ -9,7 +9,14 @@ from app.pg_database import get_db
 
 router = APIRouter()
 
-_CLIENTS_QUERY = """
+_SORT_COLS = {
+    "accountid": "a.accountid",
+    "trade_count": "trade_count",
+    "days_in_retention": "days_in_retention",
+    "total_profit": "total_profit",
+}
+
+_BASE_SELECT = """
     SELECT
         a.accountid,
         a.client_qualification_date,
@@ -20,9 +27,8 @@ _CLIENTS_QUERY = """
     INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
     LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
     WHERE a.client_qualification_date IS NOT NULL
+      AND (:search = '' OR a.accountid ILIKE :search_pattern)
     GROUP BY a.accountid, a.client_qualification_date
-    ORDER BY a.accountid
-    LIMIT :limit OFFSET :offset
 """
 
 _COUNT_QUERY = """
@@ -30,6 +36,7 @@ _COUNT_QUERY = """
     FROM ant_acc a
     INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
     WHERE a.client_qualification_date IS NOT NULL
+      AND (:search = '' OR a.accountid ILIKE :search_pattern)
 """
 
 
@@ -37,16 +44,26 @@ _COUNT_QUERY = """
 async def get_retention_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    search: str = Query(""),
+    sort_by: str = Query("accountid"),
+    sort_dir: str = Query("asc"),
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        total_result = await db.execute(text(_COUNT_QUERY))
+        sort_col = _SORT_COLS.get(sort_by, "a.accountid")
+        direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+        search_pattern = f"%{search}%" if search else ""
+
+        params = {"search": search, "search_pattern": search_pattern}
+
+        total_result = await db.execute(text(_COUNT_QUERY), params)
         total = total_result.scalar() or 0
 
+        query = f"{_BASE_SELECT} ORDER BY {sort_col} {direction} LIMIT :limit OFFSET :offset"
         result = await db.execute(
-            text(_CLIENTS_QUERY),
-            {"limit": page_size, "offset": (page - 1) * page_size},
+            text(query),
+            {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )
         rows = result.mappings().all()
 
