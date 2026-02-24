@@ -26,7 +26,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/call-manager', label: 'Call Manager', permission: 'call-manager' },
       { to: '/call-history', label: 'Call History', permission: 'call-history' },
-      { to: '/call-dashboard', label: 'AI Call Dashboard', permission: 'call-history' },
+      { to: '/call-dashboard', label: 'AI Call Dashboard', permission: 'call-dashboard' },
       { to: '/batch-call', label: 'Batch Call from File', permission: 'batch-call' },
     ],
   },
@@ -52,7 +52,7 @@ const NAV_SECTIONS: NavSection[] = [
 const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boolean; permission?: string }[] = [
   { path: '/call-manager', title: 'Call Manager', element: <CallManagerPage />, permission: 'call-manager' },
   { path: '/call-history', title: 'Call History', element: <CallHistoryPage />, permission: 'call-history' },
-  { path: '/call-dashboard', title: 'AI Call Dashboard', element: <AiCallDashboardPage />, permission: 'call-history' },
+  { path: '/call-dashboard', title: 'AI Call Dashboard', element: <AiCallDashboardPage />, permission: 'call-dashboard' },
   { path: '/batch-call', title: 'Batch Call from File', element: <BatchCallPage />, permission: 'batch-call' },
   { path: '/retention', title: 'Retention Manager', element: <RetentionPage />, permission: 'retention' },
   { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage />, permission: 'retention-tasks' },

@@ -8,6 +8,7 @@ from app.pg_database import Base
 ALL_PAGES = [
     "call-manager",
     "call-history",
+    "call-dashboard",
     "batch-call",
     "retention",
     "retention-tasks",

@@ -12,6 +12,7 @@ api.interceptors.request.use((config) => {
 const PAGE_LABELS: Record<string, string> = {
   'call-manager': 'Call Manager',
   'call-history': 'Call History',
+  'call-dashboard': 'AI Call Dashboard',
   'batch-call': 'Batch Call from File',
   'retention': 'Retention Manager',
   'retention-tasks': 'Retention Tasks',
