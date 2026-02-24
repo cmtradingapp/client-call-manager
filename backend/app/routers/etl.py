@@ -232,56 +232,55 @@ async def _run_full_sync_ant_acc(log_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 async def incremental_sync_ant_acc(session_factory: async_sessionmaker) -> None:
+    """Scheduled full refresh for ant_acc (avoids timezone comparison issues)."""
     log_id: int | None = None
     try:
         async with session_factory() as db:
-            result = await db.execute(text("SELECT MAX(modifiedtime) FROM ant_acc"))
-            last_modifiedtime = result.scalar()
             log = EtlSyncLog(sync_type="ant_acc_incremental", status="running")
             db.add(log)
             await db.commit()
             await db.refresh(log)
             log_id = log.id
 
-        if last_modifiedtime is None:
-            async with session_factory() as db:
-                log = await db.get(EtlSyncLog, log_id)
-                if log:
-                    log.status = "completed"
-                    log.rows_synced = 0
-                    log.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
-            return
+        async with session_factory() as db:
+            await db.execute(text("TRUNCATE TABLE ant_acc"))
+            await db.commit()
 
-        rows = await execute_query(
-            "SELECT accountid, client_qualification_date, modifiedtime"
-            " FROM report.ant_acc"
-            " WHERE modifiedtime > ?"
-            " ORDER BY modifiedtime",
-            (last_modifiedtime,),
-        )
-
-        if rows:
+        total = 0
+        offset = 0
+        while True:
+            rows = await execute_query(
+                "SELECT accountid, client_qualification_date, modifiedtime"
+                " FROM report.ant_acc"
+                " ORDER BY accountid"
+                " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+                (offset, _ANT_ACC_BATCH_SIZE),
+            )
+            if not rows:
+                break
             async with session_factory() as db:
                 await db.execute(
                     text(_ANT_ACC_UPSERT),
                     [{"accountid": str(r["accountid"]), "client_qualification_date": r["client_qualification_date"], "modifiedtime": r["modifiedtime"]} for r in rows],
                 )
                 await db.commit()
+            total += len(rows)
+            offset += _ANT_ACC_BATCH_SIZE
+            if len(rows) < _ANT_ACC_BATCH_SIZE:
+                break
 
         async with session_factory() as db:
             log = await db.get(EtlSyncLog, log_id)
             if log:
                 log.status = "completed"
-                log.rows_synced = len(rows)
+                log.rows_synced = total
                 log.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
-        if rows:
-            logger.info("ETL ant_acc incremental: %d rows updated", len(rows))
+        logger.info("ETL ant_acc scheduled refresh: %d rows", total)
 
     except Exception as e:
-        logger.error("ETL ant_acc incremental failed: %s", e)
+        logger.error("ETL ant_acc scheduled refresh failed: %s", e)
         if log_id:
             try:
                 async with session_factory() as db:
