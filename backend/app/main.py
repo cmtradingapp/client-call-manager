@@ -75,13 +75,13 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         incremental_sync_vta,
         "interval",
-        minutes=5,
+        hours=1,
         args=[AsyncSessionLocal],
     )
     scheduler.add_job(
         incremental_sync_mtt,
         "interval",
-        minutes=5,
+        hours=1,
         args=[AsyncSessionLocal],
     )
     if _ReplicaSession is not None:
