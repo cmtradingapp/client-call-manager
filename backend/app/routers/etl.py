@@ -19,8 +19,11 @@ _TRADES_BATCH_SIZE = 10_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
 _TRADES_UPSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, close_time) VALUES (:ticket, :login, :cmd, :profit, :close_time)"
-    " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd, profit = EXCLUDED.profit, close_time = EXCLUDED.close_time"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time)"
+    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time)"
+    " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd,"
+    " profit = EXCLUDED.profit, notional_value = EXCLUDED.notional_value,"
+    " close_time = EXCLUDED.close_time, open_time = EXCLUDED.open_time"
 )
 
 _ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime FROM report.ant_acc"
@@ -84,7 +87,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
             async with _ReplicaSession() as replica_db:
                 result = await replica_db.execute(
                     text(
-                        "SELECT ticket, login, cmd, profit, close_time FROM dealio.trades_mt4"
+                        "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
                         " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                     ),
                     {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -95,7 +98,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                 break
 
             async with AsyncSessionLocal() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "close_time": r[4]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
                 await db.commit()
 
             total += len(rows)
@@ -146,7 +149,7 @@ async def incremental_sync_trades(
                     async with replica_session_factory() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd, profit, close_time FROM dealio.trades_mt4"
+                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
                                 " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                             ),
                             {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -163,7 +166,7 @@ async def incremental_sync_trades(
                 break
 
             async with session_factory() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "close_time": r[4]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
                 await db.commit()
 
             total += len(rows)
@@ -370,14 +373,15 @@ async def _mssql_incremental_sync(
 # vtiger_trading_accounts
 # ---------------------------------------------------------------------------
 
-_VTA_SELECT = "SELECT login, vtigeraccountid, last_update AS modifiedtime FROM report.vtiger_trading_accounts"
+_VTA_SELECT = "SELECT login, vtigeraccountid, balance, credit, last_update AS modifiedtime FROM report.vtiger_trading_accounts"
 _VTA_UPSERT = (
-    "INSERT INTO vtiger_trading_accounts (login, vtigeraccountid, modifiedtime)"
-    " VALUES (:login, :vtigeraccountid, :modifiedtime)"
+    "INSERT INTO vtiger_trading_accounts (login, vtigeraccountid, balance, credit, modifiedtime)"
+    " VALUES (:login, :vtigeraccountid, :balance, :credit, :modifiedtime)"
     " ON CONFLICT (login) DO UPDATE SET"
-    " vtigeraccountid = EXCLUDED.vtigeraccountid, modifiedtime = EXCLUDED.modifiedtime"
+    " vtigeraccountid = EXCLUDED.vtigeraccountid, balance = EXCLUDED.balance,"
+    " credit = EXCLUDED.credit, modifiedtime = EXCLUDED.modifiedtime"
 )
-_vta_map = lambda r: {"login": r["login"], "vtigeraccountid": str(r["vtigeraccountid"]) if r["vtigeraccountid"] else None, "modifiedtime": r["modifiedtime"]}  # noqa: E731
+_vta_map = lambda r: {"login": r["login"], "vtigeraccountid": str(r["vtigeraccountid"]) if r["vtigeraccountid"] else None, "balance": r["balance"], "credit": r["credit"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
 
 
 async def _run_full_sync_vta(log_id: int) -> None:
@@ -395,15 +399,26 @@ async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
 # vtiger_mttransactions
 # ---------------------------------------------------------------------------
 
-_MTT_SELECT = "SELECT mttransactionsid, login, amount, transactiontype, modifiedtime FROM report.vtiger_mttransactions"
-_MTT_UPSERT = (
-    "INSERT INTO vtiger_mttransactions (mttransactionsid, login, amount, transactiontype, modifiedtime)"
-    " VALUES (:mttransactionsid, :login, :amount, :transactiontype, :modifiedtime)"
-    " ON CONFLICT (mttransactionsid) DO UPDATE SET"
-    " login = EXCLUDED.login, amount = EXCLUDED.amount,"
-    " transactiontype = EXCLUDED.transactiontype, modifiedtime = EXCLUDED.modifiedtime"
+_MTT_SELECT = (
+    "SELECT mttransactionsid, login, amount, transactiontype,"
+    " transactionapproval, confirmation_time, payment_method, usdamount, modifiedtime"
+    " FROM report.vtiger_mttransactions"
 )
-_mtt_map = lambda r: {"mttransactionsid": r["mttransactionsid"], "login": r["login"], "amount": r["amount"], "transactiontype": r["transactiontype"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
+_MTT_UPSERT = (
+    "INSERT INTO vtiger_mttransactions"
+    " (mttransactionsid, login, amount, transactiontype, transactionapproval, confirmation_time, payment_method, usdamount, modifiedtime)"
+    " VALUES (:mttransactionsid, :login, :amount, :transactiontype, :transactionapproval, :confirmation_time, :payment_method, :usdamount, :modifiedtime)"
+    " ON CONFLICT (mttransactionsid) DO UPDATE SET"
+    " login = EXCLUDED.login, amount = EXCLUDED.amount, transactiontype = EXCLUDED.transactiontype,"
+    " transactionapproval = EXCLUDED.transactionapproval, confirmation_time = EXCLUDED.confirmation_time,"
+    " payment_method = EXCLUDED.payment_method, usdamount = EXCLUDED.usdamount, modifiedtime = EXCLUDED.modifiedtime"
+)
+_mtt_map = lambda r: {  # noqa: E731
+    "mttransactionsid": r["mttransactionsid"], "login": r["login"], "amount": r["amount"],
+    "transactiontype": r["transactiontype"], "transactionapproval": r["transactionapproval"],
+    "confirmation_time": r["confirmation_time"], "payment_method": r["payment_method"],
+    "usdamount": r["usdamount"], "modifiedtime": r["modifiedtime"],
+}
 
 
 async def _run_full_sync_mtt(log_id: int) -> None:

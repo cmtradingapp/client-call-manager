@@ -10,10 +10,13 @@ class TradesMt4(Base):
     login = Column(BigInteger, nullable=False)
     cmd = Column(SmallInteger, nullable=False)
     profit = Column(Numeric(18, 2), nullable=True)
+    notional_value = Column(Numeric(18, 2), nullable=True)
     close_time = Column(DateTime(timezone=False), nullable=True)
+    open_time = Column(DateTime(timezone=False), nullable=True)
 
     __table_args__ = (
         Index("ix_trades_mt4_login", "login"),
         Index("ix_trades_mt4_login_cmd", "login", "cmd"),
         Index("ix_trades_mt4_close_time", "close_time"),
+        Index("ix_trades_mt4_open_time", "open_time"),
     )

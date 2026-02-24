@@ -10,6 +10,10 @@ class VtigerMtTransaction(Base):
     login = Column(BigInteger, nullable=True)
     amount = Column(Numeric(18, 2), nullable=True)
     transactiontype = Column(String(100), nullable=True)
+    transactionapproval = Column(String(100), nullable=True)
+    confirmation_time = Column(DateTime(timezone=False), nullable=True)
+    payment_method = Column(String(200), nullable=True)
+    usdamount = Column(Numeric(18, 2), nullable=True)
     modifiedtime = Column(DateTime(timezone=False), nullable=True)
 
     __table_args__ = (

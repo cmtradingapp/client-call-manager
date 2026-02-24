@@ -41,7 +41,21 @@ async def lifespan(app: FastAPI):
     # Add new columns to trades_mt4 if missing
     async with AsyncSessionLocal() as session:
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS profit NUMERIC(18,2)"))
+        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS notional_value NUMERIC(18,2)"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS close_time TIMESTAMP"))
+        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS open_time TIMESTAMP"))
+        await session.commit()
+    # Add new columns to vtiger_mttransactions if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS transactionapproval VARCHAR(100)"))
+        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS confirmation_time TIMESTAMP"))
+        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(200)"))
+        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS usdamount NUMERIC(18,2)"))
+        await session.commit()
+    # Add new columns to vtiger_trading_accounts if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE vtiger_trading_accounts ADD COLUMN IF NOT EXISTS balance NUMERIC(18,2)"))
+        await session.execute(_text("ALTER TABLE vtiger_trading_accounts ADD COLUMN IF NOT EXISTS credit NUMERIC(18,2)"))
         await session.commit()
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:

@@ -12,12 +12,17 @@ router = APIRouter()
 _SORT_COLS = {
     "accountid": "a.accountid",
     "client_qualification_date": "a.client_qualification_date",
-    "trade_count": "trade_count",
-    "days_in_retention": "days_in_retention",
-    "total_profit": "total_profit",
-    "last_trade_date": "last_trade_date",
+    "days_in_retention": "(CURRENT_DATE - a.client_qualification_date)",
+    "trade_count": "ta.trade_count",
+    "total_profit": "ta.total_profit",
+    "last_trade_date": "ta.last_trade_date",
+    "days_from_last_trade": "(CURRENT_DATE - ta.last_close_time::date)",
     "active": "active",
     "active_ftd": "active_ftd",
+    "deposit_count": "da.deposit_count",
+    "total_deposit": "da.total_deposit",
+    "balance": "ab.total_balance",
+    "credit": "ab.total_credit",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -28,29 +33,88 @@ def _num_cond(op: str, expr: str, param: str) -> str | None:
     return f"{expr} {sql_op} :{param}" if sql_op else None
 
 
+_CTES = """
+WITH trades_agg AS (
+    SELECT
+        vta2.vtigeraccountid,
+        COUNT(t.ticket) AS trade_count,
+        COALESCE(SUM(t.notional_value), 0) AS total_profit,
+        MAX(t.open_time) AS last_trade_date,
+        MAX(t.close_time) AS last_close_time,
+        COALESCE(BOOL_OR(t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '7 days'), false) AS has_recent_trade
+    FROM vtiger_trading_accounts vta2
+    LEFT JOIN trades_mt4 t ON t.login = vta2.login AND t.cmd IN (0, 1)
+    GROUP BY vta2.vtigeraccountid
+),
+deposits_agg AS (
+    SELECT
+        vta3.vtigeraccountid,
+        COUNT(mtt.mttransactionsid) AS deposit_count,
+        COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
+        COALESCE(BOOL_OR(
+            mtt.confirmation_time IS NOT NULL
+            AND mtt.confirmation_time > CURRENT_DATE - INTERVAL '7 days'
+        ), false) AS has_recent_deposit
+    FROM vtiger_trading_accounts vta3
+    LEFT JOIN vtiger_mttransactions mtt ON mtt.login = vta3.login
+        AND mtt.transactionapproval = 'Approved'
+        AND mtt.transactiontype = 'Deposit'
+        AND (mtt.payment_method IS NULL OR mtt.payment_method != 'BonusProtectedPositionCashback')
+    GROUP BY vta3.vtigeraccountid
+),
+balance_agg AS (
+    SELECT
+        vtigeraccountid,
+        COALESCE(SUM(balance), 0) AS total_balance,
+        COALESCE(SUM(credit), 0) AS total_credit
+    FROM vtiger_trading_accounts
+    GROUP BY vtigeraccountid
+)
+"""
+
+_JOINS = """
+    FROM ant_acc a
+    INNER JOIN trades_agg ta ON ta.vtigeraccountid = a.accountid
+    INNER JOIN deposits_agg da ON da.vtigeraccountid = a.accountid
+    INNER JOIN balance_agg ab ON ab.vtigeraccountid = a.accountid
+"""
+
+_ACTIVE_EXPR = "(ta.has_recent_trade OR da.has_recent_deposit)"
+_ACTIVE_FTD_EXPR = f"(a.client_qualification_date > CURRENT_DATE - INTERVAL '7 days' AND {_ACTIVE_EXPR})"
+
+
 @router.get("/retention/clients")
 async def get_retention_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     sort_by: str = Query("accountid"),
     sort_dir: str = Query("asc"),
-    # text / numeric filters
     accountid: str = Query(""),
+    # numeric filters
     trade_count_op: str = Query(""),
     trade_count_val: float | None = Query(None),
     days_op: str = Query(""),
     days_val: float | None = Query(None),
     profit_op: str = Query(""),
     profit_val: float | None = Query(None),
-    # date range filter
-    qual_date_from: str = Query(""),   # YYYY-MM-DD
-    qual_date_to: str = Query(""),     # YYYY-MM-DD
-    # last trade date range
-    last_trade_from: str = Query(""),  # YYYY-MM-DD
-    last_trade_to: str = Query(""),    # YYYY-MM-DD
+    days_from_last_trade_op: str = Query(""),
+    days_from_last_trade_val: float | None = Query(None),
+    deposit_count_op: str = Query(""),
+    deposit_count_val: float | None = Query(None),
+    total_deposit_op: str = Query(""),
+    total_deposit_val: float | None = Query(None),
+    balance_op: str = Query(""),
+    balance_val: float | None = Query(None),
+    credit_op: str = Query(""),
+    credit_val: float | None = Query(None),
+    # date range filters
+    qual_date_from: str = Query(""),
+    qual_date_to: str = Query(""),
+    last_trade_from: str = Query(""),
+    last_trade_to: str = Query(""),
     # boolean filters
-    active: str = Query(""),        # "true" | "false" | ""
-    active_ftd: str = Query(""),    # "true" | "false" | ""
+    active: str = Query(""),
+    active_ftd: str = Query(""),
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -59,7 +123,6 @@ async def get_retention_clients(
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
         where: list[str] = ["a.client_qualification_date IS NOT NULL"]
-        having: list[str] = []
         params: dict = {}
 
         if accountid:
@@ -80,67 +143,92 @@ async def get_retention_clients(
                 params["days_val"] = int(days_val)
 
         if trade_count_op and trade_count_val is not None:
-            cond = _num_cond(trade_count_op, "COUNT(t.ticket)", "trade_count_val")
+            cond = _num_cond(trade_count_op, "ta.trade_count", "trade_count_val")
             if cond:
-                having.append(cond)
+                where.append(cond)
                 params["trade_count_val"] = int(trade_count_val)
 
         if profit_op and profit_val is not None:
-            cond = _num_cond(profit_op, "COALESCE(SUM(t.profit), 0)", "profit_val")
+            cond = _num_cond(profit_op, "ta.total_profit", "profit_val")
             if cond:
-                having.append(cond)
+                where.append(cond)
                 params["profit_val"] = profit_val
 
-        _active_expr = "COALESCE(BOOL_OR(t.close_time IS NOT NULL AND t.close_time > CURRENT_DATE - INTERVAL '7 days'), false)"
-        _ftd_expr = f"(a.client_qualification_date > CURRENT_DATE - INTERVAL '7 days' AND {_active_expr})"
-
         if last_trade_from:
-            having.append("MAX(t.close_time) >= :last_trade_from")
+            where.append("ta.last_trade_date >= :last_trade_from")
             params["last_trade_from"] = last_trade_from
         if last_trade_to:
-            having.append("MAX(t.close_time) <= :last_trade_to")
+            where.append("ta.last_trade_date <= :last_trade_to")
             params["last_trade_to"] = last_trade_to
 
+        if days_from_last_trade_op and days_from_last_trade_val is not None:
+            cond = _num_cond(days_from_last_trade_op, "(CURRENT_DATE - ta.last_close_time::date)", "days_from_last_trade_val")
+            if cond:
+                where.append(f"ta.last_close_time IS NOT NULL AND {cond}")
+                params["days_from_last_trade_val"] = int(days_from_last_trade_val)
+
+        if deposit_count_op and deposit_count_val is not None:
+            cond = _num_cond(deposit_count_op, "da.deposit_count", "deposit_count_val")
+            if cond:
+                where.append(cond)
+                params["deposit_count_val"] = int(deposit_count_val)
+
+        if total_deposit_op and total_deposit_val is not None:
+            cond = _num_cond(total_deposit_op, "da.total_deposit", "total_deposit_val")
+            if cond:
+                where.append(cond)
+                params["total_deposit_val"] = total_deposit_val
+
+        if balance_op and balance_val is not None:
+            cond = _num_cond(balance_op, "ab.total_balance", "balance_val")
+            if cond:
+                where.append(cond)
+                params["balance_val"] = balance_val
+
+        if credit_op and credit_val is not None:
+            cond = _num_cond(credit_op, "ab.total_credit", "credit_val")
+            if cond:
+                where.append(cond)
+                params["credit_val"] = credit_val
+
         if active == "true":
-            having.append(f"{_active_expr} = true")
+            where.append(f"{_ACTIVE_EXPR} = true")
         elif active == "false":
-            having.append(f"{_active_expr} = false")
+            where.append(f"{_ACTIVE_EXPR} = false")
 
         if active_ftd == "true":
-            having.append(f"{_ftd_expr} = true")
+            where.append(f"{_ACTIVE_FTD_EXPR} = true")
         elif active_ftd == "false":
-            having.append(f"{_ftd_expr} = false")
+            where.append(f"{_ACTIVE_FTD_EXPR} = false")
 
         where_clause = " AND ".join(where)
-        having_clause = f"HAVING {' AND '.join(having)}" if having else ""
-
-        base = f"""
-            FROM ant_acc a
-            INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
-            LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
-            WHERE {where_clause}
-            GROUP BY a.accountid, a.client_qualification_date
-            {having_clause}
-        """
 
         count_result = await db.execute(
-            text(f"SELECT COUNT(*) FROM (SELECT a.accountid {base}) _sub"),
+            text(f"{_CTES} SELECT COUNT(*) FROM (SELECT a.accountid {_JOINS} WHERE {where_clause}) _sub"),
             params,
         )
         total = count_result.scalar() or 0
 
         rows_result = await db.execute(
             text(f"""
+                {_CTES}
                 SELECT
                     a.accountid,
                     a.client_qualification_date,
                     (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
-                    COUNT(t.ticket) AS trade_count,
-                    COALESCE(SUM(t.profit), 0) AS total_profit,
-                    MAX(t.close_time) AS last_trade_date,
-                    {_active_expr} AS active,
-                    {_ftd_expr} AS active_ftd
-                {base}
+                    ta.trade_count,
+                    ta.total_profit,
+                    ta.last_trade_date,
+                    CASE WHEN ta.last_close_time IS NOT NULL
+                         THEN (CURRENT_DATE - ta.last_close_time::date) ELSE NULL END AS days_from_last_trade,
+                    {_ACTIVE_EXPR} AS active,
+                    {_ACTIVE_FTD_EXPR} AS active_ftd,
+                    da.deposit_count,
+                    da.total_deposit,
+                    ab.total_balance AS balance,
+                    ab.total_credit AS credit
+                {_JOINS}
+                WHERE {where_clause}
                 ORDER BY {sort_col} {direction}
                 LIMIT :limit OFFSET :offset
             """),
@@ -156,12 +244,17 @@ async def get_retention_clients(
                 {
                     "accountid": str(r["accountid"]),
                     "client_qualification_date": r["client_qualification_date"].isoformat() if r["client_qualification_date"] else None,
-                    "trade_count": int(r["trade_count"]),
                     "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
+                    "trade_count": int(r["trade_count"]),
                     "total_profit": float(r["total_profit"]),
                     "last_trade_date": r["last_trade_date"].isoformat() if r["last_trade_date"] else None,
+                    "days_from_last_trade": int(r["days_from_last_trade"]) if r["days_from_last_trade"] is not None else None,
                     "active": bool(r["active"]),
                     "active_ftd": bool(r["active_ftd"]),
+                    "deposit_count": int(r["deposit_count"]),
+                    "total_deposit": float(r["total_deposit"]),
+                    "balance": float(r["balance"]),
+                    "credit": float(r["credit"]),
                 }
                 for r in rows
             ],
