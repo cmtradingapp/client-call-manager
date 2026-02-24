@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS notional_value NUMERIC(18,2)"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS close_time TIMESTAMP"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS open_time TIMESTAMP"))
+        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS symbol VARCHAR(50)"))
         await session.commit()
     # Add new columns to vtiger_mttransactions if missing
     async with AsyncSessionLocal() as session:
@@ -59,11 +60,12 @@ async def lifespan(app: FastAPI):
         await session.commit()
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:
-        # Drop old trades index that covered wrong columns (profit instead of notional_value/open_time)
+        # Drop old trades indexes and rebuild with correct covering columns (symbol added)
         await session.execute(_text("DROP INDEX IF EXISTS ix_trades_mt4_login_cmd"))
-        # Covering index for retention query: (login, cmd) → notional_value, open_time, close_time
+        await session.execute(_text("DROP INDEX IF EXISTS ix_trades_mt4_login_cmd_cov"))
+        # Covering index for retention query: filters on (login, cmd, symbol), reads notional_value, open_time, close_time
         await session.execute(_text(
-            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd_cov ON trades_mt4 (login, cmd) INCLUDE (notional_value, close_time, open_time)"
+            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd_cov ON trades_mt4 (login, cmd) INCLUDE (symbol, notional_value, close_time, open_time)"
         ))
         await session.execute(_text(
             "CREATE INDEX IF NOT EXISTS ix_trades_mt4_close_time ON trades_mt4 (close_time)"

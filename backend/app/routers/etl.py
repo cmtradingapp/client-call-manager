@@ -19,15 +19,15 @@ _TRADES_BATCH_SIZE = 50_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
 _TRADES_INSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time)"
-    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time)"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time, symbol)"
+    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time, :symbol)"
 )
 _TRADES_UPSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time)"
-    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time)"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time, symbol)"
+    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time, :symbol)"
     " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd,"
     " profit = EXCLUDED.profit, notional_value = EXCLUDED.notional_value,"
-    " close_time = EXCLUDED.close_time, open_time = EXCLUDED.open_time"
+    " close_time = EXCLUDED.close_time, open_time = EXCLUDED.open_time, symbol = EXCLUDED.symbol"
 )
 
 _ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime FROM report.ant_acc"
@@ -94,7 +94,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                     async with _ReplicaSession() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
+                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time, symbol FROM dealio.trades_mt4"
                                 " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                             ),
                             {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -112,7 +112,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                 break
 
             async with AsyncSessionLocal() as db:
-                await db.execute(text(_TRADES_INSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
+                await db.execute(text(_TRADES_INSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6], "symbol": r[7]} for r in rows])
                 await db.commit()
 
             total += len(rows)
@@ -163,7 +163,7 @@ async def incremental_sync_trades(
                     async with replica_session_factory() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
+                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time, symbol FROM dealio.trades_mt4"
                                 " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                             ),
                             {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -180,7 +180,7 @@ async def incremental_sync_trades(
                 break
 
             async with session_factory() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6], "symbol": r[7]} for r in rows])
                 await db.commit()
 
             total += len(rows)

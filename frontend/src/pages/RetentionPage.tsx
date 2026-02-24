@@ -169,8 +169,9 @@ export function RetentionPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
+  const [activityDays, setActivityDays] = useState('35');
 
-  const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters) => {
+  const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters, actDays: string) => {
     setLoading(true);
     setError('');
     try {
@@ -191,6 +192,7 @@ export function RetentionPage() {
           balance_op: f.balance_op, balance_val: f.balance_val || undefined,
           credit_op: f.credit_op, credit_val: f.credit_val || undefined,
           active: f.active, active_ftd: f.active_ftd,
+          activity_days: actDays || 35,
         },
       });
       setData(res.data);
@@ -201,7 +203,7 @@ export function RetentionPage() {
     }
   };
 
-  useEffect(() => { load(page, sortBy, sortDir, applied); }, [page, sortBy, sortDir, applied]);
+  useEffect(() => { load(page, sortBy, sortDir, applied, activityDays); }, [page, sortBy, sortDir, applied, activityDays]);
 
   const handleSort = (col: SortCol) => {
     if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -209,7 +211,7 @@ export function RetentionPage() {
     setPage(1);
   };
 
-  const applyFilters = () => { setApplied({ ...draft }); setPage(1); };
+  const applyFilters = () => { setApplied({ ...draft }); setPage(1); setActivityDays(activityDays); };
   const clearFilters = () => { setDraft(EMPTY_FILTERS); setApplied(EMPTY_FILTERS); setPage(1); };
   const setField = <K extends keyof Filters>(key: K, val: Filters[K]) => setDraft((prev) => ({ ...prev, [key]: val }));
 
@@ -281,7 +283,17 @@ export function RetentionPage() {
                 onOp={(v) => setField('balance_op', v)} onVal={(v) => setField('balance_val', v)} />
               <NumericFilter label="Credit" op={draft.credit_op} val={draft.credit_val}
                 onOp={(v) => setField('credit_op', v)} onVal={(v) => setField('credit_val', v)} />
-              <BoolSelect label="Active (trade/deposit in last 7d)" value={draft.active} onChange={(v) => setField('active', v)} />
+              {/* Activity window */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Activity Window (days)</label>
+                <input
+                  type="number" min={1} max={365} value={activityDays}
+                  onChange={(e) => setActivityDays(e.target.value)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-28"
+                />
+                <p className="text-xs text-gray-400 mt-0.5">Default: 35</p>
+              </div>
+              <BoolSelect label={`Active (trade/deposit in last ${activityDays || 35}d)`} value={draft.active} onChange={(v) => setField('active', v)} />
               <BoolSelect label="Active FTD" value={draft.active_ftd} onChange={(v) => setField('active_ftd', v)} />
             </div>
             <div className="flex gap-2">

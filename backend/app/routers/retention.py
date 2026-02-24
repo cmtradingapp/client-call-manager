@@ -51,10 +51,11 @@ trades_agg AS (
         MAX(t.open_time) AS last_trade_date,
         MAX(t.close_time) AS last_close_time,
         COALESCE(BOOL_OR(
-            t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '35 days'
+            t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - make_interval(days => :activity_days)
         ), false) AS has_recent_trade
     FROM qualifying_logins ql
     LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)
+        AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN ('inactivity', 'zeroingusd', 'spread'))
     GROUP BY ql.accountid
 ),
 deposits_agg AS (
@@ -64,7 +65,7 @@ deposits_agg AS (
         COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
         COALESCE(BOOL_OR(
             mtt.confirmation_time IS NOT NULL
-            AND mtt.confirmation_time > CURRENT_DATE - INTERVAL '35 days'
+            AND mtt.confirmation_time > CURRENT_DATE - make_interval(days => :activity_days)
         ), false) AS has_recent_deposit
     FROM qualifying_logins ql
     LEFT JOIN vtiger_mttransactions mtt ON mtt.login = ql.login
@@ -127,6 +128,8 @@ async def get_retention_clients(
     # boolean filters
     active: str = Query(""),
     active_ftd: str = Query(""),
+    # activity window
+    activity_days: int = Query(35, ge=1, le=365),
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -138,7 +141,7 @@ async def get_retention_clients(
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
         where: list[str] = ["a.client_qualification_date IS NOT NULL"]
-        params: dict = {}
+        params: dict = {"activity_days": activity_days}
 
         if accountid:
             where.append("a.accountid ILIKE :accountid_pattern")

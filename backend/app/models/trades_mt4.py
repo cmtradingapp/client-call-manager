@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, DateTime, Index, Numeric, SmallInteger
+from sqlalchemy import BigInteger, Column, DateTime, Index, Numeric, SmallInteger, String
 
 from app.pg_database import Base
 
@@ -13,6 +13,7 @@ class TradesMt4(Base):
     notional_value = Column(Numeric(18, 2), nullable=True)
     close_time = Column(DateTime(timezone=False), nullable=True)
     open_time = Column(DateTime(timezone=False), nullable=True)
+    symbol = Column(String(50), nullable=True)
 
     __table_args__ = (
         Index("ix_trades_mt4_login", "login"),
