@@ -19,8 +19,8 @@ _TRADES_BATCH_SIZE = 10_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
 _TRADES_UPSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd) VALUES (:ticket, :login, :cmd)"
-    " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit) VALUES (:ticket, :login, :cmd, :profit)"
+    " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd, profit = EXCLUDED.profit"
 )
 
 _ANT_ACC_UPSERT = (
@@ -70,7 +70,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
             async with _ReplicaSession() as replica_db:
                 result = await replica_db.execute(
                     text(
-                        "SELECT ticket, login, cmd FROM dealio.trades_mt4"
+                        "SELECT ticket, login, cmd, profit FROM dealio.trades_mt4"
                         " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                     ),
                     {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -81,7 +81,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                 break
 
             async with AsyncSessionLocal() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3]} for r in rows])
                 await db.commit()
 
             total += len(rows)
@@ -129,7 +129,7 @@ async def incremental_sync_trades(
                     async with replica_session_factory() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd FROM dealio.trades_mt4"
+                                "SELECT ticket, login, cmd, profit FROM dealio.trades_mt4"
                                 " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                             ),
                             {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -146,7 +146,7 @@ async def incremental_sync_trades(
                 break
 
             async with session_factory() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3]} for r in rows])
                 await db.commit()
 
             total += len(rows)

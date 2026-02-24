@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, Index, SmallInteger
+from sqlalchemy import BigInteger, Column, Index, Numeric, SmallInteger
 
 from app.pg_database import Base
 
@@ -9,5 +9,6 @@ class TradesMt4(Base):
     ticket = Column(BigInteger, primary_key=True)
     login = Column(BigInteger, nullable=False)
     cmd = Column(SmallInteger, nullable=False)
+    profit = Column(Numeric(18, 2), nullable=True)
 
     __table_args__ = (Index("ix_trades_mt4_login", "login"),)

@@ -15,6 +15,7 @@ interface RetentionClient {
   accountid: string;
   trade_count: number;
   days_in_retention: number | null;
+  total_profit: number;
 }
 
 interface RetentionResponse {
@@ -100,18 +101,19 @@ export function RetentionPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account ID</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trade Count</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days in Retention</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Profit</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-12 text-center text-sm text-gray-400">
-                    Loading data from replica database…
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">
+                    Loading…
                   </td>
                 </tr>
               ) : !data || data.clients.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">
                     No qualified accounts found.
                   </td>
                 </tr>
@@ -121,6 +123,9 @@ export function RetentionPage() {
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.accountid}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
+                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {c.total_profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
                   </tr>
                 ))
               )}

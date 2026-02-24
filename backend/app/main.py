@@ -38,6 +38,12 @@ async def lifespan(app: FastAPI):
             _text("UPDATE etl_sync_log SET status='error', error_message='Interrupted by restart' WHERE status='running'")
         )
         await session.commit()
+    # Add profit column to trades_mt4 if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS profit NUMERIC(18,2)"
+        ))
+        await session.commit()
     # Migrate vtiger_mttransactions column names if table exists with old schema
     async with AsyncSessionLocal() as session:
         await session.execute(_text("""

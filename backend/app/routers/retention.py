@@ -14,7 +14,8 @@ _CLIENTS_QUERY = """
         a.accountid,
         a.client_qualification_date,
         (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
-        COUNT(t.ticket) AS trade_count
+        COUNT(t.ticket) AS trade_count,
+        COALESCE(SUM(t.profit), 0) AS total_profit
     FROM ant_acc a
     INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
     LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
@@ -58,6 +59,7 @@ async def get_retention_clients(
                     "accountid": str(r["accountid"]),
                     "trade_count": int(r["trade_count"]),
                     "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
+                    "total_profit": float(r["total_profit"]),
                 }
                 for r in rows
             ],
