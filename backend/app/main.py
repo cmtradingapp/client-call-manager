@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(
         incremental_sync_ant_acc,
         "interval",
-        minutes=5,
+        minutes=30,
         args=[AsyncSessionLocal],
     )
     scheduler.add_job(
