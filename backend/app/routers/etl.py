@@ -324,6 +324,7 @@ async def _mssql_incremental_sync(
     row_mapper,
     timestamp_col: str = "modifiedtime",
     lookback_hours: int = 3,
+    window_minutes: int | None = None,
 ) -> None:
     log_id: int | None = None
     try:
@@ -346,13 +347,20 @@ async def _mssql_incremental_sync(
                     await db.commit()
             return
 
-        # Subtract lookback buffer to compensate for MSSQL/local timezone offset
-        cutoff = last_modifiedtime - timedelta(hours=lookback_hours)
-
-        rows = await execute_query(
-            f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
-            (cutoff,),
-        )
+        if window_minutes is not None:
+            # Fetch a fixed window: between (lookback - window) and lookback
+            window_end = last_modifiedtime - timedelta(hours=lookback_hours)
+            window_start = window_end - timedelta(minutes=window_minutes)
+            rows = await execute_query(
+                f"{mssql_select} WHERE {timestamp_col} BETWEEN ? AND ? ORDER BY {timestamp_col}",
+                (window_start, window_end),
+            )
+        else:
+            cutoff = last_modifiedtime - timedelta(hours=lookback_hours)
+            rows = await execute_query(
+                f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
+                (cutoff,),
+            )
         if rows:
             async with session_factory() as db:
                 await db.execute(text(upsert_sql), [row_mapper(r) for r in rows])
@@ -406,7 +414,7 @@ async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
     if await _is_running("vta"):
         logger.info("ETL vta: skipping scheduled run — sync already in progress")
         return
-    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update")
+    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update", lookback_hours=2, window_minutes=30)
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +451,7 @@ async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
     if await _is_running("mtt"):
         logger.info("ETL mtt: skipping scheduled run — sync already in progress")
         return
-    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map)
+    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map, lookback_hours=2, window_minutes=30)
 
 
 # ---------------------------------------------------------------------------
