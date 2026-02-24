@@ -16,7 +16,7 @@ _SORT_COLS = {
     "trade_count": "ta.trade_count",
     "total_profit": "ta.total_profit",
     "last_trade_date": "ta.last_trade_date",
-    "days_from_last_trade": "(CURRENT_DATE - ta.last_close_time::date)",
+    "days_from_last_trade": "ta.last_close_time",
     "active": "active",
     "active_ftd": "active_ftd",
     "deposit_count": "da.deposit_count",
@@ -33,50 +33,62 @@ def _num_cond(op: str, expr: str, param: str) -> str | None:
     return f"{expr} {sql_op} :{param}" if sql_op else None
 
 
+# qualifying_logins pre-filters to only accounts we care about,
+# so the trade/deposit/balance CTEs only process relevant rows.
 _CTES = """
-WITH trades_agg AS (
+WITH qualifying_logins AS (
+    SELECT vta.login, a.accountid
+    FROM ant_acc a
+    INNER JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = a.accountid
+    WHERE a.client_qualification_date IS NOT NULL
+      AND a.client_qualification_date >= '2024-01-01'
+),
+trades_agg AS (
     SELECT
-        vta2.vtigeraccountid,
+        ql.accountid,
         COUNT(t.ticket) AS trade_count,
         COALESCE(SUM(t.notional_value), 0) AS total_profit,
         MAX(t.open_time) AS last_trade_date,
         MAX(t.close_time) AS last_close_time,
-        COALESCE(BOOL_OR(t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '35 days'), false) AS has_recent_trade
-    FROM vtiger_trading_accounts vta2
-    LEFT JOIN trades_mt4 t ON t.login = vta2.login AND t.cmd IN (0, 1)
-    GROUP BY vta2.vtigeraccountid
+        COALESCE(BOOL_OR(
+            t.open_time IS NOT NULL AND t.open_time > CURRENT_DATE - INTERVAL '35 days'
+        ), false) AS has_recent_trade
+    FROM qualifying_logins ql
+    LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)
+    GROUP BY ql.accountid
 ),
 deposits_agg AS (
     SELECT
-        vta3.vtigeraccountid,
+        ql.accountid,
         COUNT(mtt.mttransactionsid) AS deposit_count,
         COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
         COALESCE(BOOL_OR(
             mtt.confirmation_time IS NOT NULL
             AND mtt.confirmation_time > CURRENT_DATE - INTERVAL '35 days'
         ), false) AS has_recent_deposit
-    FROM vtiger_trading_accounts vta3
-    LEFT JOIN vtiger_mttransactions mtt ON mtt.login = vta3.login
+    FROM qualifying_logins ql
+    LEFT JOIN vtiger_mttransactions mtt ON mtt.login = ql.login
         AND mtt.transactionapproval = 'Approved'
         AND mtt.transactiontype = 'Deposit'
         AND (mtt.payment_method IS NULL OR mtt.payment_method != 'BonusProtectedPositionCashback')
-    GROUP BY vta3.vtigeraccountid
+    GROUP BY ql.accountid
 ),
 balance_agg AS (
     SELECT
-        vtigeraccountid,
-        COALESCE(SUM(balance), 0) AS total_balance,
-        COALESCE(SUM(credit), 0) AS total_credit
-    FROM vtiger_trading_accounts
-    GROUP BY vtigeraccountid
+        ql.accountid,
+        COALESCE(SUM(vta.balance), 0) AS total_balance,
+        COALESCE(SUM(vta.credit), 0) AS total_credit
+    FROM qualifying_logins ql
+    INNER JOIN vtiger_trading_accounts vta ON vta.login = ql.login
+    GROUP BY ql.accountid
 )
 """
 
 _JOINS = """
     FROM ant_acc a
-    INNER JOIN trades_agg ta ON ta.vtigeraccountid = a.accountid
-    INNER JOIN deposits_agg da ON da.vtigeraccountid = a.accountid
-    INNER JOIN balance_agg ab ON ab.vtigeraccountid = a.accountid
+    INNER JOIN trades_agg ta ON ta.accountid = a.accountid
+    INNER JOIN deposits_agg da ON da.accountid = a.accountid
+    INNER JOIN balance_agg ab ON ab.accountid = a.accountid
 """
 
 _ACTIVE_EXPR = "(ta.has_recent_trade OR da.has_recent_deposit)"
@@ -122,10 +134,7 @@ async def get_retention_clients(
         sort_col = _SORT_COLS.get(sort_by, "a.accountid")
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
-        where: list[str] = [
-            "a.client_qualification_date IS NOT NULL",
-            "a.client_qualification_date >= '2024-01-01'",
-        ]
+        where: list[str] = ["a.client_qualification_date IS NOT NULL"]
         params: dict = {}
 
         if accountid:
