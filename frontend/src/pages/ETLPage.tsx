@@ -20,8 +20,8 @@ interface SyncLog {
 }
 
 function StatusBadge({ status }: { status: SyncLog['status'] }) {
-  const styles = { running: 'bg-yellow-100 text-yellow-800', completed: 'bg-green-100 text-green-800', error: 'bg-red-100 text-red-800' };
-  const labels = { running: '⟳ Running', completed: '✓ Completed', error: '✗ Error' };
+  const styles: Record<string, string> = { running: 'bg-yellow-100 text-yellow-800', completed: 'bg-green-100 text-green-800', error: 'bg-red-100 text-red-800' };
+  const labels: Record<string, string> = { running: '⟳ Running', completed: '✓ Completed', error: '✗ Error' };
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[status]}`}>{labels[status]}</span>;
 }
 
@@ -30,7 +30,7 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleString();
 }
 
-function duration(log: SyncLog) {
+function calcDuration(log: SyncLog) {
   if (!log.started_at || !log.completed_at) return '—';
   const s = Math.round((new Date(log.completed_at).getTime() - new Date(log.started_at).getTime()) / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -53,6 +53,7 @@ function SyncSection({
 }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const hasRunning = logs.some((l) => l.status === 'running');
   const lastCompleted = logs.find((l) => l.status === 'completed');
 
@@ -70,87 +71,102 @@ function SyncSection({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg shadow px-5 py-4">
-          <p className="text-xs text-gray-500 mb-1">Local Rows</p>
-          <p className="text-2xl font-bold text-gray-800">{rowCount?.toLocaleString() ?? '—'}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-lg shadow px-4 py-3">
+          <p className="text-xs text-gray-500 mb-0.5">Local Rows</p>
+          <p className="text-xl font-bold text-gray-800">{rowCount?.toLocaleString() ?? '—'}</p>
         </div>
-        <div className="bg-white rounded-lg shadow px-5 py-4">
-          <p className="text-xs text-gray-500 mb-1">Last Sync Rows</p>
-          <p className="text-2xl font-bold text-gray-800">{lastCompleted?.rows_synced?.toLocaleString() ?? '—'}</p>
+        <div className="bg-white rounded-lg shadow px-4 py-3">
+          <p className="text-xs text-gray-500 mb-0.5">Last Sync Rows</p>
+          <p className="text-xl font-bold text-gray-800">{lastCompleted?.rows_synced?.toLocaleString() ?? '—'}</p>
         </div>
-        <div className="bg-white rounded-lg shadow px-5 py-4">
-          <p className="text-xs text-gray-500 mb-1">Last Synced</p>
+        <div className="bg-white rounded-lg shadow px-4 py-3">
+          <p className="text-xs text-gray-500 mb-0.5">Last Synced</p>
           <p className="text-sm font-semibold text-gray-800">{formatDate(lastCompleted?.completed_at ?? null)}</p>
         </div>
       </div>
 
       {/* Full sync button */}
-      <div className="bg-white rounded-lg shadow p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">Full Sync — <code className="bg-gray-100 px-1 rounded text-xs">{source}</code></h3>
-        <p className="text-xs text-gray-500 mb-4">{description}</p>
-        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">
+          Full Sync — <code className="bg-gray-100 px-1 rounded text-xs">{source}</code>
+        </h3>
+        <p className="text-xs text-gray-500 mb-3">{description}</p>
+        {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <button
           onClick={run}
           disabled={syncing || hasRunning}
-          className="px-5 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
           {syncing ? 'Starting…' : hasRunning ? 'Sync Running…' : 'Run Full Sync'}
         </button>
       </div>
 
-      {/* Log table */}
+      {/* Collapsible history */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <span className="text-sm font-medium text-gray-700">Sync History</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Type', 'Status', 'Started', 'Completed', 'Duration', 'Rows', 'Error'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">No sync history yet.</td></tr>
-              ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="border-t border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-800 capitalize">{log.sync_type.replace('_', ' ')}</td>
-                    <td className="px-4 py-3"><StatusBadge status={log.status} /></td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(log.started_at)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(log.completed_at)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{duration(log)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{log.rows_synced?.toLocaleString() ?? '—'}</td>
-                    <td className="px-4 py-3 text-xs text-red-600 max-w-xs truncate">{log.error_message ?? '—'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <button
+          onClick={() => setShowHistory((v) => !v)}
+          className="w-full px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors"
+        >
+          <span className="text-sm font-medium text-gray-700">
+            Sync History
+            {logs.length > 0 && <span className="ml-2 text-xs text-gray-400">({logs.length})</span>}
+          </span>
+          <span className="text-gray-400 text-xs">{showHistory ? '▲ Hide' : '▼ Show'}</span>
+        </button>
+        {showHistory && (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Type', 'Status', 'Started', 'Completed', 'Duration', 'Rows', 'Error'].map((h) => (
+                    <th key={h} className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {logs.length === 0 ? (
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No sync history yet.</td></tr>
+                ) : (
+                  logs.map((log) => (
+                    <tr key={log.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-2 text-sm font-medium text-gray-800 capitalize">{log.sync_type.replace(/_/g, ' ')}</td>
+                      <td className="px-4 py-2"><StatusBadge status={log.status} /></td>
+                      <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{formatDate(log.started_at)}</td>
+                      <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{formatDate(log.completed_at)}</td>
+                      <td className="px-4 py-2 text-sm text-gray-600">{calcDuration(log)}</td>
+                      <td className="px-4 py-2 text-sm text-gray-700">{log.rows_synced?.toLocaleString() ?? '—'}</td>
+                      <td className="px-4 py-2 text-xs text-red-600 max-w-xs truncate">{log.error_message ?? '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+interface StatusData {
+  trades_row_count: number;
+  ant_acc_row_count: number;
+  vta_row_count: number;
+  mtt_row_count: number;
+  logs: SyncLog[];
+}
+
 export function ETLPage() {
-  const [logs, setLogs] = useState<SyncLog[]>([]);
-  const [tradesCount, setTradesCount] = useState<number | null>(null);
-  const [antAccCount, setAntAccCount] = useState<number | null>(null);
+  const [data, setData] = useState<StatusData | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = async () => {
     try {
       const res = await api.get('/etl/sync-status');
-      setLogs(res.data.logs);
-      setTradesCount(res.data.trades_row_count);
-      setAntAccCount(res.data.ant_acc_row_count);
+      setData(res.data);
     } catch { /* ignore */ }
   };
 
@@ -160,35 +176,33 @@ export function ETLPage() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
-  const tradesLogs = logs.filter((l) => l.sync_type.startsWith('trades') || l.sync_type === 'full' || l.sync_type === 'incremental');
-  const antAccLogs = logs.filter((l) => l.sync_type.startsWith('ant_acc'));
+  const logs = data?.logs ?? [];
+  const filter = (prefix: string) => logs.filter((l) =>
+    l.sync_type.startsWith(prefix) || (prefix === 'trades' && (l.sync_type === 'full' || l.sync_type === 'incremental'))
+  );
+
+  const sections = [
+    { key: 'trades', label: 'Trades', source: 'dealio.trades_mt4', endpoint: '/etl/sync-trades', count: data?.trades_row_count ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 5 min using ticket cursor.' },
+    { key: 'ant_acc', label: 'Accounts', source: 'report.ant_acc', endpoint: '/etl/sync-ant-acc', count: data?.ant_acc_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
+    { key: 'vta', label: 'Trading Accounts', source: 'report.vtiger_trading_accounts', endpoint: '/etl/sync-vta', count: data?.vta_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
+    { key: 'mtt', label: 'MT Transactions', source: 'report.vtiger_mttransactions', endpoint: '/etl/sync-mtt', count: data?.mtt_row_count ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 5 min using modifiedtime.' },
+  ];
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-base font-semibold text-gray-700 mb-4">Trades — dealio.trades_mt4</h2>
-        <SyncSection
-          source="dealio.trades_mt4"
-          rowCount={tradesCount}
-          description="Truncates the local trades_mt4 table and re-imports all rows from the dealio replica. Use for initial load or to fix data issues."
-          syncEndpoint="/etl/sync-trades"
-          logs={tradesLogs}
-          onSync={fetchStatus}
-        />
-      </div>
-
-      <div>
-        <h2 className="text-base font-semibold text-gray-700 mb-4">Accounts — report.ant_acc</h2>
-        <SyncSection
-          source="report.ant_acc"
-          rowCount={antAccCount}
-          description="Truncates the local ant_acc table and re-imports all rows from MSSQL. Incremental sync runs every 5 minutes using modifiedtime."
-          syncEndpoint="/etl/sync-ant-acc"
-          logs={antAccLogs}
-          onSync={fetchStatus}
-        />
-      </div>
-
+      {sections.map((s) => (
+        <div key={s.key}>
+          <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">{s.label} — {s.source}</h2>
+          <SyncSection
+            source={s.source}
+            rowCount={s.count}
+            description={s.desc}
+            syncEndpoint={s.endpoint}
+            logs={filter(s.key)}
+            onSync={fetchStatus}
+          />
+        </div>
+      ))}
       <p className="text-xs text-gray-400 text-right">Auto-refreshes every 10s</p>
     </div>
   );

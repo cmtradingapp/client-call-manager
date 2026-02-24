@@ -296,6 +296,157 @@ async def incremental_sync_ant_acc(session_factory: async_sessionmaker) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shared helper for MSSQL-sourced full + incremental syncs
+# ---------------------------------------------------------------------------
+
+async def _mssql_full_sync(
+    log_id: int,
+    sync_type: str,
+    select_sql: str,
+    local_table: str,
+    upsert_sql: str,
+    row_mapper,
+    batch_size: int = 5_000,
+) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text(f"TRUNCATE TABLE {local_table}"))
+            await db.commit()
+
+        total = 0
+        offset = 0
+        while True:
+            rows = await execute_query(
+                f"{select_sql} ORDER BY 1 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+                (offset, batch_size),
+            )
+            if not rows:
+                break
+            async with AsyncSessionLocal() as db:
+                await db.execute(text(upsert_sql), [row_mapper(r) for r in rows])
+                await db.commit()
+            total += len(rows)
+            offset += batch_size
+            logger.info("ETL %s full: %d rows so far", local_table, total)
+            if len(rows) < batch_size:
+                break
+
+        await _update_log(log_id, "completed", rows_synced=total)
+        logger.info("ETL %s full sync complete: %d rows", local_table, total)
+    except Exception as e:
+        logger.error("ETL %s full sync failed: %s", local_table, e)
+        await _update_log(log_id, "error", error=str(e))
+
+
+async def _mssql_incremental_sync(
+    session_factory: async_sessionmaker,
+    sync_type: str,
+    local_table: str,
+    mssql_select: str,
+    upsert_sql: str,
+    row_mapper,
+) -> None:
+    log_id: int | None = None
+    try:
+        async with session_factory() as db:
+            result = await db.execute(text(f"SELECT MAX(modifiedtime) FROM {local_table}"))
+            last_modifiedtime = result.scalar()
+            log = EtlSyncLog(sync_type=sync_type, status="running")
+            db.add(log)
+            await db.commit()
+            await db.refresh(log)
+            log_id = log.id
+
+        if last_modifiedtime is None:
+            async with session_factory() as db:
+                log = await db.get(EtlSyncLog, log_id)
+                if log:
+                    log.status = "completed"
+                    log.rows_synced = 0
+                    log.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+            return
+
+        rows = await execute_query(
+            f"{mssql_select} WHERE modifiedtime > ? ORDER BY modifiedtime",
+            (last_modifiedtime,),
+        )
+        if rows:
+            async with session_factory() as db:
+                await db.execute(text(upsert_sql), [row_mapper(r) for r in rows])
+                await db.commit()
+
+        async with session_factory() as db:
+            log = await db.get(EtlSyncLog, log_id)
+            if log:
+                log.status = "completed"
+                log.rows_synced = len(rows)
+                log.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        if rows:
+            logger.info("ETL %s incremental: %d rows updated", local_table, len(rows))
+
+    except Exception as e:
+        logger.error("ETL %s incremental failed: %s", local_table, e)
+        if log_id:
+            try:
+                async with session_factory() as db:
+                    log = await db.get(EtlSyncLog, log_id)
+                    if log:
+                        log.status = "error"
+                        log.error_message = str(e)
+                        log.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# vtiger_trading_accounts
+# ---------------------------------------------------------------------------
+
+_VTA_SELECT = "SELECT login, vtigeraccountid, modifiedtime FROM report.vtiger_trading_accounts"
+_VTA_UPSERT = (
+    "INSERT INTO vtiger_trading_accounts (login, vtigeraccountid, modifiedtime)"
+    " VALUES (:login, :vtigeraccountid, :modifiedtime)"
+    " ON CONFLICT (login) DO UPDATE SET"
+    " vtigeraccountid = EXCLUDED.vtigeraccountid, modifiedtime = EXCLUDED.modifiedtime"
+)
+_vta_map = lambda r: {"login": r["login"], "vtigeraccountid": str(r["vtigeraccountid"]) if r["vtigeraccountid"] else None, "modifiedtime": r["modifiedtime"]}  # noqa: E731
+
+
+async def _run_full_sync_vta(log_id: int) -> None:
+    await _mssql_full_sync(log_id, "vta_full", _VTA_SELECT, "vtiger_trading_accounts", _VTA_UPSERT, _vta_map)
+
+
+async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
+    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map)
+
+
+# ---------------------------------------------------------------------------
+# vtiger_mttransactions
+# ---------------------------------------------------------------------------
+
+_MTT_SELECT = "SELECT crmid, login, amount, transaction_type, modifiedtime FROM report.vtiger_mttransactions"
+_MTT_UPSERT = (
+    "INSERT INTO vtiger_mttransactions (crmid, login, amount, transaction_type, modifiedtime)"
+    " VALUES (:crmid, :login, :amount, :transaction_type, :modifiedtime)"
+    " ON CONFLICT (crmid) DO UPDATE SET"
+    " login = EXCLUDED.login, amount = EXCLUDED.amount,"
+    " transaction_type = EXCLUDED.transaction_type, modifiedtime = EXCLUDED.modifiedtime"
+)
+_mtt_map = lambda r: {"crmid": r["crmid"], "login": r["login"], "amount": r["amount"], "transaction_type": r["transaction_type"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
+
+
+async def _run_full_sync_mtt(log_id: int) -> None:
+    await _mssql_full_sync(log_id, "mtt_full", _MTT_SELECT, "vtiger_mttransactions", _MTT_UPSERT, _mtt_map)
+
+
+async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
+    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map)
+
+
+# ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
 
@@ -327,6 +478,34 @@ async def sync_ant_acc(
     return {"status": "started", "log_id": log.id}
 
 
+@router.post("/etl/sync-vta")
+async def sync_vta(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    log = EtlSyncLog(sync_type="vta_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_vta, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
+@router.post("/etl/sync-mtt")
+async def sync_mtt(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    log = EtlSyncLog(sync_type="mtt_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_mtt, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
 @router.get("/etl/sync-status")
 async def sync_status(
     db: AsyncSession = Depends(get_db),
@@ -339,10 +518,14 @@ async def sync_status(
 
     trades_count = (await db.execute(text("SELECT COUNT(*) FROM trades_mt4"))).scalar() or 0
     ant_acc_count = (await db.execute(text("SELECT COUNT(*) FROM ant_acc"))).scalar() or 0
+    vta_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_trading_accounts"))).scalar() or 0
+    mtt_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_mttransactions"))).scalar() or 0
 
     return {
         "trades_row_count": trades_count,
         "ant_acc_row_count": ant_acc_count,
+        "vta_row_count": vta_count,
+        "mtt_row_count": mtt_count,
         "logs": [
             {
                 "id": r["id"],
