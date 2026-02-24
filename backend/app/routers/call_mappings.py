@@ -48,7 +48,7 @@ async def export_unknown_full(
     and returns a complete CSV — regardless of what is loaded on the frontend.
     """
     http_client = request.app.state.http_client
-    unknown_ids: List[str] = []
+    conversations: List[dict] = []
     cursor: Optional[str] = None
 
     # Paginate through all ElevenLabs results
@@ -68,27 +68,36 @@ async def export_unknown_full(
         data = resp.json()
 
         for conv in data.get("conversations", []):
-            cid = conv.get("conversation_id")
-            if cid:
-                unknown_ids.append(cid)
+            if conv.get("conversation_id"):
+                conversations.append(conv)
 
         cursor = data.get("next_cursor")
         if not cursor:
             break
 
     # Look up account IDs from our mapping table
-    account_ids: List[str] = []
-    if unknown_ids:
+    account_map: dict = {}
+    if conversations:
+        conv_ids = [c["conversation_id"] for c in conversations]
         result = await db.execute(
-            select(CallMapping).where(CallMapping.conversation_id.in_(unknown_ids))
+            select(CallMapping).where(CallMapping.conversation_id.in_(conv_ids))
         )
-        account_ids = [m.account_id for m in result.scalars().all()]
+        account_map = {m.conversation_id: m.account_id for m in result.scalars().all()}
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id"])
-    for aid in account_ids:
-        writer.writerow([aid])
+    writer.writerow(["account_id", "conversation_id", "date", "agent_name", "duration_secs"])
+    for conv in conversations:
+        cid = conv.get("conversation_id", "")
+        start = conv.get("start_time_unix_secs")
+        date_str = __import__("datetime").datetime.utcfromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S") if start else ""
+        writer.writerow([
+            account_map.get(cid, ""),
+            cid,
+            date_str,
+            conv.get("agent_name", ""),
+            conv.get("call_duration_secs", ""),
+        ])
 
     output.seek(0)
     filename = f"unknown_calls{'_' + agent_id if agent_id else ''}.csv"
