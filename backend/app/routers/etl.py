@@ -19,15 +19,16 @@ _TRADES_BATCH_SIZE = 100_000
 _ANT_ACC_BATCH_SIZE = 100_000
 
 _TRADES_INSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol)"
-    " VALUES (:ticket, :login, :cmd, :profit, :computed_profit, :notional_value, :close_time, :open_time, :symbol)"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol, last_modified)"
+    " VALUES (:ticket, :login, :cmd, :profit, :computed_profit, :notional_value, :close_time, :open_time, :symbol, :last_modified)"
 )
 _TRADES_UPSERT = (
-    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol)"
-    " VALUES (:ticket, :login, :cmd, :profit, :computed_profit, :notional_value, :close_time, :open_time, :symbol)"
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol, last_modified)"
+    " VALUES (:ticket, :login, :cmd, :profit, :computed_profit, :notional_value, :close_time, :open_time, :symbol, :last_modified)"
     " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd,"
     " profit = EXCLUDED.profit, computed_profit = EXCLUDED.computed_profit, notional_value = EXCLUDED.notional_value,"
-    " close_time = EXCLUDED.close_time, open_time = EXCLUDED.open_time, symbol = EXCLUDED.symbol"
+    " close_time = EXCLUDED.close_time, open_time = EXCLUDED.open_time, symbol = EXCLUDED.symbol,"
+    " last_modified = EXCLUDED.last_modified"
 )
 
 _ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime FROM report.ant_acc"
@@ -94,7 +95,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                     async with _ReplicaSession() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol FROM dealio.trades_mt4"
+                                "SELECT ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol, last_modified FROM dealio.trades_mt4"
                                 " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
                             ),
                             {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
@@ -112,7 +113,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                 break
 
             async with AsyncSessionLocal() as db:
-                await db.execute(text(_TRADES_INSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "computed_profit": r[4], "notional_value": r[5], "close_time": r[6], "open_time": r[7], "symbol": r[8]} for r in rows])
+                await db.execute(text(_TRADES_INSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "computed_profit": r[4], "notional_value": r[5], "close_time": r[6], "open_time": r[7], "symbol": r[8], "last_modified": r[9]} for r in rows])
                 await db.commit()
 
             total += len(rows)
@@ -144,29 +145,29 @@ async def incremental_sync_trades(
     log_id: int | None = None
     try:
         async with session_factory() as db:
-            result = await db.execute(text("SELECT COALESCE(MAX(ticket), 0) FROM trades_mt4"))
-            last_ticket = result.scalar()
+            result = await db.execute(text("SELECT MAX(last_modified) FROM trades_mt4"))
+            last_modified = result.scalar()
             log = EtlSyncLog(sync_type="trades_incremental", status="running")
             db.add(log)
             await db.commit()
             await db.refresh(log)
             log_id = log.id
 
+        cutoff = (last_modified or datetime.now(timezone.utc)) - timedelta(hours=3)
         total = 0
-        cursor = last_ticket
+        offset = 0
 
         while True:
-            # Retry up to 3 times on transient connection errors
             rows = None
             for attempt in range(3):
                 try:
                     async with replica_session_factory() as replica_db:
                         result = await replica_db.execute(
                             text(
-                                "SELECT ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol FROM dealio.trades_mt4"
-                                " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
+                                "SELECT ticket, login, cmd, profit, computed_profit, notional_value, close_time, open_time, symbol, last_modified FROM dealio.trades_mt4"
+                                " WHERE last_modified > :cutoff ORDER BY last_modified, ticket LIMIT :limit OFFSET :offset"
                             ),
-                            {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
+                            {"cutoff": cutoff, "limit": _TRADES_BATCH_SIZE, "offset": offset},
                         )
                         rows = result.fetchall()
                     break
@@ -180,11 +181,11 @@ async def incremental_sync_trades(
                 break
 
             async with session_factory() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "computed_profit": r[4], "notional_value": r[5], "close_time": r[6], "open_time": r[7], "symbol": r[8]} for r in rows])
+                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "computed_profit": r[4], "notional_value": r[5], "close_time": r[6], "open_time": r[7], "symbol": r[8], "last_modified": r[9]} for r in rows])
                 await db.commit()
 
             total += len(rows)
-            cursor = rows[-1][0]
+            offset += len(rows)
 
             if len(rows) < _TRADES_BATCH_SIZE:
                 break
@@ -414,7 +415,7 @@ async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
     if await _is_running("vta"):
         logger.info("ETL vta: skipping scheduled run — sync already in progress")
         return
-    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update", lookback_hours=2, window_minutes=30)
+    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update", lookback_hours=3)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +452,7 @@ async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
     if await _is_running("mtt"):
         logger.info("ETL mtt: skipping scheduled run — sync already in progress")
         return
-    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map, lookback_hours=2, window_minutes=30)
+    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map, lookback_hours=3)
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS open_time TIMESTAMP"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS symbol VARCHAR(50)"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS computed_profit NUMERIC(18,2)"))
+        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS last_modified TIMESTAMP"))
         await session.commit()
     # Add new columns to vtiger_mttransactions if missing
     async with AsyncSessionLocal() as session:
@@ -140,7 +141,7 @@ async def lifespan(app: FastAPI):
         scheduler.add_job(
             incremental_sync_trades,
             "interval",
-            minutes=5,
+            minutes=30,
             args=[AsyncSessionLocal, _ReplicaSession],
         )
     scheduler.add_job(
@@ -184,6 +185,24 @@ app.include_router(retention_fields_router, prefix="/api")
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/health/time")
+async def health_time() -> dict:
+    from datetime import datetime, timezone
+    from app.database import execute_query
+    result = {"server_utc": datetime.now(timezone.utc).isoformat()}
+    try:
+        rows = await execute_query("SELECT GETUTCDATE() AS mssql_utc, GETDATE() AS mssql_local", ())
+        if rows:
+            result["mssql_utc"] = rows[0]["mssql_utc"].isoformat() if rows[0]["mssql_utc"] else None
+            result["mssql_local"] = rows[0]["mssql_local"].isoformat() if rows[0]["mssql_local"] else None
+            if rows[0]["mssql_utc"]:
+                diff = datetime.now(timezone.utc).replace(tzinfo=None) - rows[0]["mssql_utc"]
+                result["server_ahead_of_mssql_utc_seconds"] = round(diff.total_seconds())
+    except Exception as e:
+        result["mssql_error"] = str(e)
+    return result
 
 
 @app.get("/api/health/replica")

@@ -15,6 +15,7 @@ class TradesMt4(Base):
     close_time = Column(DateTime(timezone=False), nullable=True)
     open_time = Column(DateTime(timezone=False), nullable=True)
     symbol = Column(String(50), nullable=True)
+    last_modified = Column(DateTime(timezone=False), nullable=True)
 
     __table_args__ = (
         Index("ix_trades_mt4_login", "login"),
