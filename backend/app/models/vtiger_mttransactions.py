@@ -6,10 +6,10 @@ from app.pg_database import Base
 class VtigerMtTransaction(Base):
     __tablename__ = "vtiger_mttransactions"
 
-    crmid = Column(BigInteger, primary_key=True)
+    mttransactionsid = Column(BigInteger, primary_key=True)
     login = Column(BigInteger, nullable=True)
     amount = Column(Numeric(18, 2), nullable=True)
-    transaction_type = Column(String(100), nullable=True)
+    transactiontype = Column(String(100), nullable=True)
     modifiedtime = Column(DateTime(timezone=False), nullable=True)
 
     __table_args__ = (

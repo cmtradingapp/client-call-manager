@@ -345,6 +345,7 @@ async def _mssql_incremental_sync(
     mssql_select: str,
     upsert_sql: str,
     row_mapper,
+    timestamp_col: str = "modifiedtime",
 ) -> None:
     log_id: int | None = None
     try:
@@ -368,7 +369,7 @@ async def _mssql_incremental_sync(
             return
 
         rows = await execute_query(
-            f"{mssql_select} WHERE modifiedtime > ? ORDER BY modifiedtime",
+            f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
             (last_modifiedtime,),
         )
         if rows:
@@ -405,7 +406,7 @@ async def _mssql_incremental_sync(
 # vtiger_trading_accounts
 # ---------------------------------------------------------------------------
 
-_VTA_SELECT = "SELECT login, vtigeraccountid, modifiedtime FROM report.vtiger_trading_accounts"
+_VTA_SELECT = "SELECT login, vtigeraccountid, last_update AS modifiedtime FROM report.vtiger_trading_accounts"
 _VTA_UPSERT = (
     "INSERT INTO vtiger_trading_accounts (login, vtigeraccountid, modifiedtime)"
     " VALUES (:login, :vtigeraccountid, :modifiedtime)"
@@ -420,22 +421,22 @@ async def _run_full_sync_vta(log_id: int) -> None:
 
 
 async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
-    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map)
+    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update")
 
 
 # ---------------------------------------------------------------------------
 # vtiger_mttransactions
 # ---------------------------------------------------------------------------
 
-_MTT_SELECT = "SELECT crmid, login, amount, transaction_type, modifiedtime FROM report.vtiger_mttransactions"
+_MTT_SELECT = "SELECT mttransactionsid, login, amount, transactiontype, modifiedtime FROM report.vtiger_mttransactions"
 _MTT_UPSERT = (
-    "INSERT INTO vtiger_mttransactions (crmid, login, amount, transaction_type, modifiedtime)"
-    " VALUES (:crmid, :login, :amount, :transaction_type, :modifiedtime)"
-    " ON CONFLICT (crmid) DO UPDATE SET"
+    "INSERT INTO vtiger_mttransactions (mttransactionsid, login, amount, transactiontype, modifiedtime)"
+    " VALUES (:mttransactionsid, :login, :amount, :transactiontype, :modifiedtime)"
+    " ON CONFLICT (mttransactionsid) DO UPDATE SET"
     " login = EXCLUDED.login, amount = EXCLUDED.amount,"
-    " transaction_type = EXCLUDED.transaction_type, modifiedtime = EXCLUDED.modifiedtime"
+    " transactiontype = EXCLUDED.transactiontype, modifiedtime = EXCLUDED.modifiedtime"
 )
-_mtt_map = lambda r: {"crmid": r["crmid"], "login": r["login"], "amount": r["amount"], "transaction_type": r["transaction_type"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
+_mtt_map = lambda r: {"mttransactionsid": r["mttransactionsid"], "login": r["login"], "amount": r["amount"], "transactiontype": r["transactiontype"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
 
 
 async def _run_full_sync_mtt(log_id: int) -> None:
