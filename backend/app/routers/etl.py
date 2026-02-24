@@ -420,7 +420,14 @@ async def _run_full_sync_vta(log_id: int) -> None:
 
 
 async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
-    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update")
+    """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
+    async with session_factory() as db:
+        log = EtlSyncLog(sync_type="vta_incremental", status="running")
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+    await _mssql_full_sync(log_id, "vta_incremental", _VTA_SELECT, "vtiger_trading_accounts", _VTA_UPSERT, _vta_map)
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +450,14 @@ async def _run_full_sync_mtt(log_id: int) -> None:
 
 
 async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
-    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map)
+    """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
+    async with session_factory() as db:
+        log = EtlSyncLog(sync_type="mtt_incremental", status="running")
+        db.add(log)
+        await db.commit()
+        await db.refresh(log)
+        log_id = log.id
+    await _mssql_full_sync(log_id, "mtt_incremental", _MTT_SELECT, "vtiger_mttransactions", _MTT_UPSERT, _mtt_map)
 
 
 # ---------------------------------------------------------------------------
