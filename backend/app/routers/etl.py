@@ -323,7 +323,7 @@ async def _mssql_incremental_sync(
     upsert_sql: str,
     row_mapper,
     timestamp_col: str = "modifiedtime",
-    lookback_hours: int = 2,
+    lookback_hours: int = 3,
 ) -> None:
     log_id: int | None = None
     try:
