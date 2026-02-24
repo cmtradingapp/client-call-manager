@@ -38,6 +38,23 @@ async def lifespan(app: FastAPI):
             _text("UPDATE etl_sync_log SET status='error', error_message='Interrupted by restart' WHERE status='running'")
         )
         await session.commit()
+    # Migrate vtiger_mttransactions column names if table exists with old schema
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='vtiger_mttransactions' AND column_name='crmid') THEN
+                    ALTER TABLE vtiger_mttransactions RENAME COLUMN crmid TO mttransactionsid;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='vtiger_mttransactions' AND column_name='transaction_type') THEN
+                    ALTER TABLE vtiger_mttransactions RENAME COLUMN transaction_type TO transactiontype;
+                END IF;
+            END$$;
+        """))
+        await session.commit()
+    logger.info("vtiger_mttransactions schema migration checked")
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
     logger.info("Shared HTTP client initialised")
 
