@@ -39,28 +39,6 @@ async def lifespan(app: FastAPI):
             _text("UPDATE etl_sync_log SET status='error', error_message='Interrupted by restart' WHERE status='running'")
         )
         await session.commit()
-    # Add new columns to trades_mt4 if missing
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS profit NUMERIC(18,2)"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS notional_value NUMERIC(18,2)"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS close_time TIMESTAMP"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS open_time TIMESTAMP"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS symbol VARCHAR(50)"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS computed_profit NUMERIC(18,2)"))
-        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS last_modified TIMESTAMP"))
-        await session.commit()
-    # Add new columns to vtiger_mttransactions if missing
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS transactionapproval VARCHAR(100)"))
-        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS confirmation_time TIMESTAMP"))
-        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(200)"))
-        await session.execute(_text("ALTER TABLE vtiger_mttransactions ADD COLUMN IF NOT EXISTS usdamount NUMERIC(18,2)"))
-        await session.commit()
-    # Add new columns to vtiger_trading_accounts if missing
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("ALTER TABLE vtiger_trading_accounts ADD COLUMN IF NOT EXISTS balance NUMERIC(18,2)"))
-        await session.execute(_text("ALTER TABLE vtiger_trading_accounts ADD COLUMN IF NOT EXISTS credit NUMERIC(18,2)"))
-        await session.commit()
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:
         # Covering index for retention query: filters on (login, cmd, symbol), reads notional_value, open_time, close_time
@@ -167,23 +145,6 @@ async def lifespan(app: FastAPI):
         logger.info("PostgreSQL system settings tuned")
     except Exception as pg_tune_err:
         logger.warning("Could not apply PostgreSQL system settings (need superuser): %s", pg_tune_err)
-    # Migrate vtiger_mttransactions column names if table exists with old schema
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("""
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT 1 FROM information_schema.columns
-                           WHERE table_name='vtiger_mttransactions' AND column_name='crmid') THEN
-                    ALTER TABLE vtiger_mttransactions RENAME COLUMN crmid TO mttransactionsid;
-                END IF;
-                IF EXISTS (SELECT 1 FROM information_schema.columns
-                           WHERE table_name='vtiger_mttransactions' AND column_name='transaction_type') THEN
-                    ALTER TABLE vtiger_mttransactions RENAME COLUMN transaction_type TO transactiontype;
-                END IF;
-            END$$;
-        """))
-        await session.commit()
-    logger.info("vtiger_mttransactions schema migration checked")
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
     logger.info("Shared HTTP client initialised")
 
