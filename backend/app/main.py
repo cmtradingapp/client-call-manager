@@ -81,6 +81,18 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
+    # Tune PostgreSQL for this workload (requires superuser; silently skipped if not available)
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(_text("ALTER SYSTEM SET work_mem = '256MB'"))
+            await session.execute(_text("ALTER SYSTEM SET effective_cache_size = '9GB'"))
+            await session.execute(_text("ALTER SYSTEM SET shared_buffers = '3GB'"))
+            await session.execute(_text("ALTER SYSTEM SET maintenance_work_mem = '512MB'"))
+            await session.execute(_text("SELECT pg_reload_conf()"))
+            await session.commit()
+        logger.info("PostgreSQL system settings tuned")
+    except Exception as pg_tune_err:
+        logger.warning("Could not apply PostgreSQL system settings (need superuser): %s", pg_tune_err)
     # Migrate vtiger_mttransactions column names if table exists with old schema
     async with AsyncSessionLocal() as session:
         await session.execute(_text("""

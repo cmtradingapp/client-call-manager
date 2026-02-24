@@ -131,6 +131,9 @@ async def get_retention_clients(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
+        # Give this session more memory for hash aggregations
+        await db.execute(text("SET work_mem = '256MB'"))
+
         sort_col = _SORT_COLS.get(sort_by, "a.accountid")
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
