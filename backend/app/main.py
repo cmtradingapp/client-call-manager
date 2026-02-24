@@ -61,10 +61,15 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
-    # Create retention materialized view (pre-computed aggregation for fast agent queries)
+    # Create retention materialized view — check catalog first to avoid locking the view
     async with AsyncSessionLocal() as session:
-        await session.execute(_text("""
-            CREATE MATERIALIZED VIEW IF NOT EXISTS retention_mv AS
+        mv_exists = (await session.execute(
+            _text("SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = 'retention_mv')")
+        )).scalar()
+    if not mv_exists:
+        async with AsyncSessionLocal() as session:
+            await session.execute(_text("""
+                CREATE MATERIALIZED VIEW IF NOT EXISTS retention_mv AS
             WITH qualifying_logins AS (
                 SELECT vta.login, a.accountid
                 FROM ant_acc a
@@ -122,16 +127,21 @@ async def lifespan(app: FastAPI):
             INNER JOIN trades_agg ta ON ta.accountid = a.accountid
             INNER JOIN deposits_agg da ON da.accountid = a.accountid
             INNER JOIN balance_agg ab ON ab.accountid = a.accountid
-            WHERE a.client_qualification_date IS NOT NULL
-            WITH NO DATA
-        """))
-        await session.commit()
-    # Unique index required for CONCURRENTLY refresh
+                WHERE a.client_qualification_date IS NOT NULL
+                WITH NO DATA
+            """))
+            await session.commit()
+    # Create unique index only if it doesn't exist — check catalog to avoid locking the view
     async with AsyncSessionLocal() as session:
-        await session.execute(_text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS retention_mv_accountid ON retention_mv (accountid)"
-        ))
-        await session.commit()
+        idx_exists = (await session.execute(
+            _text("SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'retention_mv_accountid')")
+        )).scalar()
+    if not idx_exists:
+        async with AsyncSessionLocal() as session:
+            await session.execute(_text(
+                "CREATE UNIQUE INDEX retention_mv_accountid ON retention_mv (accountid)"
+            ))
+            await session.commit()
     logger.info("retention_mv and unique index created/verified")
     # Tune PostgreSQL for this workload (requires superuser; silently skipped if not available)
     try:
