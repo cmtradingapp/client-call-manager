@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import text
@@ -23,6 +23,8 @@ _TRADES_UPSERT = (
     " ON CONFLICT (ticket) DO UPDATE SET login = EXCLUDED.login, cmd = EXCLUDED.cmd, profit = EXCLUDED.profit"
 )
 
+_ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime FROM report.ant_acc"
+
 _ANT_ACC_UPSERT = (
     "INSERT INTO ant_acc (accountid, client_qualification_date, modifiedtime)"
     " VALUES (:accountid, :client_qualification_date, :modifiedtime)"
@@ -30,6 +32,8 @@ _ANT_ACC_UPSERT = (
     " client_qualification_date = EXCLUDED.client_qualification_date,"
     " modifiedtime = EXCLUDED.modifiedtime"
 )
+
+_ant_acc_map = lambda r: {"accountid": str(r["accountid"]), "client_qualification_date": r["client_qualification_date"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
 
 
 # ---------------------------------------------------------------------------
@@ -245,69 +249,10 @@ async def _run_full_sync_ant_acc(log_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 async def incremental_sync_ant_acc(session_factory: async_sessionmaker) -> None:
-    """Scheduled full refresh for ant_acc (avoids timezone comparison issues)."""
     if await _is_running("ant_acc"):
         logger.info("ETL ant_acc: skipping scheduled run — sync already in progress")
         return
-    log_id: int | None = None
-    try:
-        async with session_factory() as db:
-            log = EtlSyncLog(sync_type="ant_acc_incremental", status="running")
-            db.add(log)
-            await db.commit()
-            await db.refresh(log)
-            log_id = log.id
-
-        async with session_factory() as db:
-            await db.execute(text("TRUNCATE TABLE ant_acc"))
-            await db.commit()
-
-        total = 0
-        offset = 0
-        while True:
-            rows = await execute_query(
-                "SELECT accountid, client_qualification_date, modifiedtime"
-                " FROM report.ant_acc"
-                " ORDER BY accountid"
-                " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
-                (offset, _ANT_ACC_BATCH_SIZE),
-            )
-            if not rows:
-                break
-            async with session_factory() as db:
-                await db.execute(
-                    text(_ANT_ACC_UPSERT),
-                    [{"accountid": str(r["accountid"]), "client_qualification_date": r["client_qualification_date"], "modifiedtime": r["modifiedtime"]} for r in rows],
-                )
-                await db.commit()
-            total += len(rows)
-            offset += _ANT_ACC_BATCH_SIZE
-            if len(rows) < _ANT_ACC_BATCH_SIZE:
-                break
-
-        async with session_factory() as db:
-            log = await db.get(EtlSyncLog, log_id)
-            if log:
-                log.status = "completed"
-                log.rows_synced = total
-                log.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-
-        logger.info("ETL ant_acc scheduled refresh: %d rows", total)
-
-    except Exception as e:
-        logger.error("ETL ant_acc scheduled refresh failed: %s", e)
-        if log_id:
-            try:
-                async with session_factory() as db:
-                    log = await db.get(EtlSyncLog, log_id)
-                    if log:
-                        log.status = "error"
-                        log.error_message = str(e)
-                        log.completed_at = datetime.now(timezone.utc)
-                        await db.commit()
-            except Exception:
-                pass
+    await _mssql_incremental_sync(session_factory, "ant_acc_incremental", "ant_acc", _ANT_ACC_SELECT, _ANT_ACC_UPSERT, _ant_acc_map)
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +306,7 @@ async def _mssql_incremental_sync(
     upsert_sql: str,
     row_mapper,
     timestamp_col: str = "modifiedtime",
+    lookback_hours: int = 2,
 ) -> None:
     log_id: int | None = None
     try:
@@ -383,9 +329,12 @@ async def _mssql_incremental_sync(
                     await db.commit()
             return
 
+        # Subtract lookback buffer to compensate for MSSQL/local timezone offset
+        cutoff = last_modifiedtime - timedelta(hours=lookback_hours)
+
         rows = await execute_query(
             f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
-            (last_modifiedtime,),
+            (cutoff,),
         )
         if rows:
             async with session_factory() as db:
@@ -436,17 +385,10 @@ async def _run_full_sync_vta(log_id: int) -> None:
 
 
 async def incremental_sync_vta(session_factory: async_sessionmaker) -> None:
-    """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
     if await _is_running("vta"):
         logger.info("ETL vta: skipping scheduled run — sync already in progress")
         return
-    async with session_factory() as db:
-        log = EtlSyncLog(sync_type="vta_incremental", status="running")
-        db.add(log)
-        await db.commit()
-        await db.refresh(log)
-        log_id = log.id
-    await _mssql_full_sync(log_id, "vta_incremental", _VTA_SELECT, "vtiger_trading_accounts", _VTA_UPSERT, _vta_map)
+    await _mssql_incremental_sync(session_factory, "vta_incremental", "vtiger_trading_accounts", _VTA_SELECT, _VTA_UPSERT, _vta_map, timestamp_col="last_update")
 
 
 # ---------------------------------------------------------------------------
@@ -469,17 +411,10 @@ async def _run_full_sync_mtt(log_id: int) -> None:
 
 
 async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
-    """Scheduled full refresh — avoids MSSQL/local timezone comparison issues."""
     if await _is_running("mtt"):
         logger.info("ETL mtt: skipping scheduled run — sync already in progress")
         return
-    async with session_factory() as db:
-        log = EtlSyncLog(sync_type="mtt_incremental", status="running")
-        db.add(log)
-        await db.commit()
-        await db.refresh(log)
-        log_id = log.id
-    await _mssql_full_sync(log_id, "mtt_incremental", _MTT_SELECT, "vtiger_mttransactions", _MTT_UPSERT, _mtt_map)
+    await _mssql_incremental_sync(session_factory, "mtt_incremental", "vtiger_mttransactions", _MTT_SELECT, _MTT_UPSERT, _mtt_map)
 
 
 # ---------------------------------------------------------------------------
