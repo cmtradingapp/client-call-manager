@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS close_time TIMESTAMP"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS open_time TIMESTAMP"))
         await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS symbol VARCHAR(50)"))
+        await session.execute(_text("ALTER TABLE trades_mt4 ADD COLUMN IF NOT EXISTS computed_profit NUMERIC(18,2)"))
         await session.commit()
     # Add new columns to vtiger_mttransactions if missing
     async with AsyncSessionLocal() as session:
