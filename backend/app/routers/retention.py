@@ -47,7 +47,7 @@ trades_agg AS (
     SELECT
         ql.accountid,
         COUNT(t.ticket) AS trade_count,
-        COALESCE(SUM(t.notional_value), 0) AS total_profit,
+        COALESCE(SUM(t.profit), 0) AS total_profit,
         MAX(t.open_time) AS last_trade_date,
         MAX(t.close_time) AS last_close_time,
         COALESCE(BOOL_OR(
