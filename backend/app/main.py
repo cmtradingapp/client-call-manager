@@ -158,17 +158,6 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("retention_mv and unique index created/verified")
-    # Populate retention_mv on first deploy (blocks startup, but only runs once)
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(_text(
-            "SELECT ispopulated FROM pg_matviews WHERE matviewname = 'retention_mv'"
-        ))
-        row = result.first()
-        if row and not row[0]:
-            logger.info("retention_mv is empty — running initial population (may take a while)...")
-            await session.execute(_text("REFRESH MATERIALIZED VIEW retention_mv"))
-            await session.commit()
-            logger.info("retention_mv initial population complete")
     # Tune PostgreSQL for this workload (requires superuser; silently skipped if not available)
     try:
         async with AsyncSessionLocal() as session:

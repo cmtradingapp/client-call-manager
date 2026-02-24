@@ -487,12 +487,22 @@ async def daily_full_sync_all() -> None:
 # ---------------------------------------------------------------------------
 
 async def refresh_retention_mv() -> None:
-    """Refresh retention_mv CONCURRENTLY so reads never block during refresh."""
+    """Refresh retention_mv. Uses CONCURRENTLY when populated (reads never block),
+    falls back to regular REFRESH on first run when the view is still empty."""
     try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(text("SELECT ispopulated FROM pg_matviews WHERE matviewname = 'retention_mv'"))
+            row = result.first()
+            ispopulated = bool(row[0]) if row else False
+
         async with engine.connect() as conn:
             await conn.execution_options(isolation_level="AUTOCOMMIT")
-            await conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY retention_mv"))
-        logger.info("retention_mv refreshed")
+            if ispopulated:
+                await conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY retention_mv"))
+            else:
+                logger.info("retention_mv not yet populated — running initial population...")
+                await conn.execute(text("REFRESH MATERIALIZED VIEW retention_mv"))
+        logger.info("retention_mv refreshed (concurrent=%s)", ispopulated)
     except Exception as e:
         logger.error("retention_mv refresh failed: %s", e)
 

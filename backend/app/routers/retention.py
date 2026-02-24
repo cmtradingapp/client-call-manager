@@ -222,4 +222,6 @@ async def get_retention_clients(
             ],
         }
     except Exception as e:
+        if "has not been populated" in str(e):
+            raise HTTPException(status_code=503, detail="Data is being prepared, please try again in a moment.")
         raise HTTPException(status_code=502, detail=f"Query failed: {e}")
