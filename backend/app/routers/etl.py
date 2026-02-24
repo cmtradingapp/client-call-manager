@@ -15,7 +15,7 @@ from app.replica_database import get_replica_db
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_TRADES_BATCH_SIZE = 10_000
+_TRADES_BATCH_SIZE = 2_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
 _TRADES_UPSERT = (
@@ -84,15 +84,25 @@ async def _run_full_sync_trades(log_id: int) -> None:
         cursor = 0
 
         while True:
-            async with _ReplicaSession() as replica_db:
-                result = await replica_db.execute(
-                    text(
-                        "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
-                        " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
-                    ),
-                    {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
-                )
-                rows = result.fetchall()
+            rows = None
+            for attempt in range(5):
+                try:
+                    async with _ReplicaSession() as replica_db:
+                        result = await replica_db.execute(
+                            text(
+                                "SELECT ticket, login, cmd, profit, notional_value, close_time, open_time FROM dealio.trades_mt4"
+                                " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
+                            ),
+                            {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
+                        )
+                        rows = result.fetchall()
+                    break
+                except Exception as e:
+                    if attempt == 4:
+                        raise
+                    wait = 2 ** attempt
+                    logger.warning("ETL trades full: attempt %d failed (%s), retrying in %ds", attempt + 1, e, wait)
+                    await asyncio.sleep(wait)
 
             if not rows:
                 break
