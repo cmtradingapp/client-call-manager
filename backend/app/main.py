@@ -12,7 +12,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import incremental_sync_trades, router as etl_router
+from app.routers.etl import incremental_sync_ant_acc, incremental_sync_trades, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -43,6 +43,12 @@ async def lifespan(app: FastAPI):
 
     from app.replica_database import _ReplicaSession
     scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        incremental_sync_ant_acc,
+        "interval",
+        minutes=5,
+        args=[AsyncSessionLocal],
+    )
     if _ReplicaSession is not None:
         scheduler.add_job(
             incremental_sync_trades,
@@ -50,8 +56,8 @@ async def lifespan(app: FastAPI):
             minutes=5,
             args=[AsyncSessionLocal, _ReplicaSession],
         )
-        scheduler.start()
-        logger.info("ETL scheduler started — incremental trades sync every 5 minutes")
+    scheduler.start()
+    logger.info("ETL scheduler started — incremental sync every 5 minutes")
 
     yield
 
