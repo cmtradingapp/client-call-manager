@@ -16,56 +16,94 @@ _SORT_COLS = {
     "total_profit": "total_profit",
 }
 
-_BASE_SELECT = """
-    SELECT
-        a.accountid,
-        a.client_qualification_date,
-        (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
-        COUNT(t.ticket) AS trade_count,
-        COALESCE(SUM(t.profit), 0) AS total_profit
-    FROM ant_acc a
-    INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
-    LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
-    WHERE a.client_qualification_date IS NOT NULL
-      AND (:search = '' OR a.accountid ILIKE :search_pattern)
-    GROUP BY a.accountid, a.client_qualification_date
-"""
+_OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
 
-_COUNT_QUERY = """
-    SELECT COUNT(DISTINCT a.accountid)
-    FROM ant_acc a
-    INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
-    WHERE a.client_qualification_date IS NOT NULL
-      AND (:search = '' OR a.accountid ILIKE :search_pattern)
-"""
+
+def _num_cond(op: str, expr: str, param: str) -> str | None:
+    sql_op = _OP_MAP.get(op)
+    return f"{expr} {sql_op} :{param}" if sql_op else None
 
 
 @router.get("/retention/clients")
 async def get_retention_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    search: str = Query(""),
     sort_by: str = Query("accountid"),
     sort_dir: str = Query("asc"),
+    # filters
+    accountid: str = Query(""),
+    trade_count_op: str = Query(""),
+    trade_count_val: float | None = Query(None),
+    days_op: str = Query(""),
+    days_val: float | None = Query(None),
+    profit_op: str = Query(""),
+    profit_val: float | None = Query(None),
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         sort_col = _SORT_COLS.get(sort_by, "a.accountid")
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
-        search_pattern = f"%{search}%" if search else ""
 
-        params = {"search": search, "search_pattern": search_pattern}
+        where: list[str] = ["a.client_qualification_date IS NOT NULL"]
+        having: list[str] = []
+        params: dict = {}
 
-        total_result = await db.execute(text(_COUNT_QUERY), params)
-        total = total_result.scalar() or 0
+        if accountid:
+            where.append("a.accountid ILIKE :accountid_pattern")
+            params["accountid_pattern"] = f"%{accountid}%"
 
-        query = f"{_BASE_SELECT} ORDER BY {sort_col} {direction} LIMIT :limit OFFSET :offset"
-        result = await db.execute(
-            text(query),
+        if days_op and days_val is not None:
+            cond = _num_cond(days_op, "(CURRENT_DATE - a.client_qualification_date)", "days_val")
+            if cond:
+                where.append(cond)
+                params["days_val"] = int(days_val)
+
+        if trade_count_op and trade_count_val is not None:
+            cond = _num_cond(trade_count_op, "COUNT(t.ticket)", "trade_count_val")
+            if cond:
+                having.append(cond)
+                params["trade_count_val"] = int(trade_count_val)
+
+        if profit_op and profit_val is not None:
+            cond = _num_cond(profit_op, "COALESCE(SUM(t.profit), 0)", "profit_val")
+            if cond:
+                having.append(cond)
+                params["profit_val"] = profit_val
+
+        where_clause = " AND ".join(where)
+        having_clause = f"HAVING {' AND '.join(having)}" if having else ""
+
+        base = f"""
+            FROM ant_acc a
+            INNER JOIN vtiger_trading_accounts vta ON a.accountid = vta.vtigeraccountid
+            LEFT JOIN trades_mt4 t ON t.login = vta.login AND t.cmd IN (0, 1)
+            WHERE {where_clause}
+            GROUP BY a.accountid, a.client_qualification_date
+            {having_clause}
+        """
+
+        count_result = await db.execute(
+            text(f"SELECT COUNT(*) FROM (SELECT a.accountid {base}) _sub"),
+            params,
+        )
+        total = count_result.scalar() or 0
+
+        rows_result = await db.execute(
+            text(f"""
+                SELECT
+                    a.accountid,
+                    a.client_qualification_date,
+                    (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
+                    COUNT(t.ticket) AS trade_count,
+                    COALESCE(SUM(t.profit), 0) AS total_profit
+                {base}
+                ORDER BY {sort_col} {direction}
+                LIMIT :limit OFFSET :offset
+            """),
             {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )
-        rows = result.mappings().all()
+        rows = rows_result.mappings().all()
 
         return {
             "total": total,

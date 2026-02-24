@@ -10,8 +10,8 @@ api.interceptors.request.use((config) => {
 });
 
 const PAGE_SIZE = 50;
-
 type SortCol = 'accountid' | 'trade_count' | 'days_in_retention' | 'total_profit';
+type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 
 interface RetentionClient {
   accountid: string;
@@ -20,11 +20,33 @@ interface RetentionClient {
   total_profit: number;
 }
 
-interface RetentionResponse {
-  total: number;
-  page: number;
-  page_size: number;
-  clients: RetentionClient[];
+interface Filters {
+  accountid: string;
+  trade_count_op: NumOp;
+  trade_count_val: string;
+  days_op: NumOp;
+  days_val: string;
+  profit_op: NumOp;
+  profit_val: string;
+}
+
+const EMPTY_FILTERS: Filters = {
+  accountid: '',
+  trade_count_op: '',
+  trade_count_val: '',
+  days_op: '',
+  days_val: '',
+  profit_op: '',
+  profit_val: '',
+};
+
+function countActive(f: Filters) {
+  return [
+    f.accountid,
+    f.trade_count_op && f.trade_count_val,
+    f.days_op && f.days_val,
+    f.profit_op && f.profit_val,
+  ].filter(Boolean).length;
 }
 
 function SortIcon({ col, sortBy, sortDir }: { col: SortCol; sortBy: SortCol; sortDir: 'asc' | 'desc' }) {
@@ -32,22 +54,79 @@ function SortIcon({ col, sortBy, sortDir }: { col: SortCol; sortBy: SortCol; sor
   return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
 }
 
+function NumericFilter({
+  label,
+  op,
+  val,
+  onOp,
+  onVal,
+}: {
+  label: string;
+  op: NumOp;
+  val: string;
+  onOp: (v: NumOp) => void;
+  onVal: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <div className="flex gap-1">
+        <select
+          value={op}
+          onChange={(e) => onOp(e.target.value as NumOp)}
+          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        >
+          <option value="">—</option>
+          <option value="eq">= Equal</option>
+          <option value="gt">&gt; Greater</option>
+          <option value="gte">≥ At least</option>
+          <option value="lt">&lt; Less</option>
+          <option value="lte">≤ At most</option>
+        </select>
+        <input
+          type="number"
+          value={val}
+          onChange={(e) => onVal(e.target.value)}
+          disabled={!op}
+          placeholder="Value"
+          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-28 disabled:bg-gray-50 disabled:text-gray-400"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function RetentionPage() {
-  const [data, setData] = useState<RetentionResponse | null>(null);
+  const [data, setData] = useState<{ total: number; clients: RetentionClient[] } | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
   const [sortBy, setSortBy] = useState<SortCol>('accountid');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const load = async (p: number, s: string, col: SortCol, dir: 'asc' | 'desc') => {
+  // Draft (what user is editing) vs applied (what is sent to API)
+  const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
+  const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
+
+  const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters) => {
     setLoading(true);
     setError('');
     try {
       const res = await api.get('/retention/clients', {
-        params: { page: p, page_size: PAGE_SIZE, search: s, sort_by: col, sort_dir: dir },
+        params: {
+          page: p,
+          page_size: PAGE_SIZE,
+          sort_by: col,
+          sort_dir: dir,
+          accountid: f.accountid,
+          trade_count_op: f.trade_count_op,
+          trade_count_val: f.trade_count_val || undefined,
+          days_op: f.days_op,
+          days_val: f.days_val || undefined,
+          profit_op: f.profit_op,
+          profit_val: f.profit_val || undefined,
+        },
       });
       setData(res.data);
     } catch (err: any) {
@@ -57,123 +136,143 @@ export function RetentionPage() {
     }
   };
 
-  useEffect(() => { load(page, search, sortBy, sortDir); }, [page, search, sortBy, sortDir]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearch(searchInput);
-    setPage(1);
-  };
+  useEffect(() => { load(page, sortBy, sortDir, applied); }, [page, sortBy, sortDir, applied]);
 
   const handleSort = (col: SortCol) => {
-    if (sortBy === col) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(col);
-      setSortDir('asc');
-    }
+    if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortBy(col); setSortDir('asc'); }
     setPage(1);
   };
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const applyFilters = () => {
+    setApplied({ ...draft });
+    setPage(1);
+  };
 
-  const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100';
-  const thClassRight = 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100';
+  const clearFilters = () => {
+    setDraft(EMPTY_FILTERS);
+    setApplied(EMPTY_FILTERS);
+    setPage(1);
+  };
+
+  const setField = <K extends keyof Filters>(key: K, val: Filters[K]) =>
+    setDraft((prev) => ({ ...prev, [key]: val }));
+
+  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const activeCount = countActive(applied);
+
+  const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
+  const thClassRight = 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
 
   return (
     <div className="space-y-4">
-      {/* Search + stats bar */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search account ID…"
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
-          />
-          <button
-            type="submit"
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-          >
-            Search
-          </button>
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setSearchInput(''); setPage(1); }}
-              className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-md"
-            >
-              Clear
-            </button>
-          )}
-        </form>
-        {data && !loading && (
-          <p className="text-sm text-gray-500">
-            {data.total.toLocaleString()} {search ? 'matching' : 'qualified'} accounts
-          </p>
+      {/* Collapsible filters */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <button
+          onClick={() => setFiltersOpen((v) => !v)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Filters</span>
+            {activeCount > 0 && (
+              <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                {activeCount} active
+              </span>
+            )}
+          </div>
+          <span className="text-gray-400 text-xs">{filtersOpen ? '▲ Hide' : '▼ Show'}</span>
+        </button>
+
+        {filtersOpen && (
+          <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Account ID */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Account ID</label>
+                <input
+                  type="text"
+                  value={draft.accountid}
+                  onChange={(e) => setField('accountid', e.target.value)}
+                  placeholder="Contains…"
+                  className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <NumericFilter
+                label="Trade Count"
+                op={draft.trade_count_op}
+                val={draft.trade_count_val}
+                onOp={(v) => setField('trade_count_op', v)}
+                onVal={(v) => setField('trade_count_val', v)}
+              />
+
+              <NumericFilter
+                label="Days in Retention"
+                op={draft.days_op}
+                val={draft.days_val}
+                onOp={(v) => setField('days_op', v)}
+                onVal={(v) => setField('days_val', v)}
+              />
+
+              <NumericFilter
+                label="Total Profit"
+                op={draft.profit_op}
+                val={draft.profit_val}
+                onOp={(v) => setField('profit_op', v)}
+                onVal={(v) => setField('profit_val', v)}
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={applyFilters}
+                className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+              >
+                Apply Filters
+              </button>
+              <button
+                onClick={clearFilters}
+                className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-md text-sm font-medium hover:bg-gray-50"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
+      {/* Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
           <span className="text-sm text-gray-600">
-            {loading ? 'Loading…' : `Showing ${((page - 1) * PAGE_SIZE) + 1}–${Math.min(page * PAGE_SIZE, data?.total ?? 0)} of ${data?.total?.toLocaleString() ?? 0}`}
+            {loading ? 'Loading…' : `${data?.total?.toLocaleString() ?? 0} accounts${activeCount > 0 ? ' (filtered)' : ''} — showing ${((page - 1) * PAGE_SIZE) + 1}–${Math.min(page * PAGE_SIZE, data?.total ?? 0)}`}
           </span>
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1 || loading}
-                className="px-3 py-1 text-xs rounded-md border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-              >
-                ← Prev
-              </button>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading} className="px-3 py-1 text-xs rounded-md border border-gray-300 disabled:opacity-40 hover:bg-gray-50">← Prev</button>
               <span className="text-xs text-gray-500">{page} / {totalPages}</span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages || loading}
-                className="px-3 py-1 text-xs rounded-md border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-              >
-                Next →
-              </button>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="px-3 py-1 text-xs rounded-md border border-gray-300 disabled:opacity-40 hover:bg-gray-50">Next →</button>
             </div>
           )}
         </div>
 
-        {error && (
-          <div className="px-4 py-3 bg-red-50 border-b border-red-100 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        {error && <div className="px-4 py-3 bg-red-50 border-b border-red-100 text-sm text-red-600">{error}</div>}
 
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                <th className={thClass} onClick={() => handleSort('accountid')}>
-                  Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} />
-                </th>
-                <th className={thClass} onClick={() => handleSort('trade_count')}>
-                  Trade Count <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} />
-                </th>
-                <th className={thClass} onClick={() => handleSort('days_in_retention')}>
-                  Days in Retention <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} />
-                </th>
-                <th className={thClassRight} onClick={() => handleSort('total_profit')}>
-                  Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} />
-                </th>
+                <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('trade_count')}>Trade Count <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('days_in_retention')}>Days in Retention <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td>
-                </tr>
+                <tr><td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">No qualified accounts found.</td>
-                </tr>
+                <tr><td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
