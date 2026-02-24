@@ -59,14 +59,25 @@ async def lifespan(app: FastAPI):
         await session.commit()
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:
+        # Drop old trades index that covered wrong columns (profit instead of notional_value/open_time)
+        await session.execute(_text("DROP INDEX IF EXISTS ix_trades_mt4_login_cmd"))
+        # Covering index for retention query: (login, cmd) → notional_value, open_time, close_time
         await session.execute(_text(
-            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd ON trades_mt4 (login, cmd) INCLUDE (profit, close_time)"
+            "CREATE INDEX IF NOT EXISTS ix_trades_mt4_login_cmd_cov ON trades_mt4 (login, cmd) INCLUDE (notional_value, close_time, open_time)"
         ))
         await session.execute(_text(
             "CREATE INDEX IF NOT EXISTS ix_trades_mt4_close_time ON trades_mt4 (close_time)"
         ))
         await session.execute(_text(
             "CREATE INDEX IF NOT EXISTS ix_ant_acc_qual_date ON ant_acc (client_qualification_date)"
+        ))
+        # Covering index for deposits_agg join in retention query
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_mtt_login_approval_type ON vtiger_mttransactions (login, transactionapproval, transactiontype) INCLUDE (usdamount, confirmation_time, payment_method)"
+        ))
+        # Index for qualifying_logins join (vtigeraccountid lookup)
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_vta_vtigeraccountid ON vtiger_trading_accounts (vtigeraccountid)"
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
