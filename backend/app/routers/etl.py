@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -121,15 +122,25 @@ async def incremental_sync_trades(
         cursor = last_ticket
 
         while True:
-            async with replica_session_factory() as replica_db:
-                result = await replica_db.execute(
-                    text(
-                        "SELECT ticket, login, cmd FROM dealio.trades_mt4"
-                        " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
-                    ),
-                    {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
-                )
-                rows = result.fetchall()
+            # Retry up to 3 times on transient connection errors
+            rows = None
+            for attempt in range(3):
+                try:
+                    async with replica_session_factory() as replica_db:
+                        result = await replica_db.execute(
+                            text(
+                                "SELECT ticket, login, cmd FROM dealio.trades_mt4"
+                                " WHERE ticket > :cursor ORDER BY ticket LIMIT :limit"
+                            ),
+                            {"cursor": cursor, "limit": _TRADES_BATCH_SIZE},
+                        )
+                        rows = result.fetchall()
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        raise
+                    logger.warning("ETL trades: connection error on attempt %d, retrying: %s", attempt + 1, e)
+                    await asyncio.sleep(2)
 
             if not rows:
                 break

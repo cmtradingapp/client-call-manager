@@ -33,7 +33,13 @@ def init_replica() -> None:
             connect_args = {"ssl": ssl_ctx}
         else:
             connect_args = {}
-        _replica_engine = create_async_engine(_build_replica_url(), echo=False, pool_pre_ping=True, connect_args=connect_args)
+        _replica_engine = create_async_engine(
+            _build_replica_url(),
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=600,  # recycle connections every 10 min to avoid server-side timeouts
+            connect_args=connect_args,
+        )
         _ReplicaSession = async_sessionmaker(_replica_engine, expire_on_commit=False)
         logger.info("Replica DB engine initialised (%s:%s/%s)", settings.replica_db_host, settings.replica_db_port, settings.replica_db_name)
     except Exception as e:
