@@ -513,6 +513,8 @@ async def sync_trades(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ) -> dict:
+    if await _is_running("trades"):
+        return {"status": "already_running"}
     log = EtlSyncLog(sync_type="trades_full", status="running")
     db.add(log)
     await db.commit()
@@ -527,6 +529,8 @@ async def sync_ant_acc(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ) -> dict:
+    if await _is_running("ant_acc"):
+        return {"status": "already_running"}
     log = EtlSyncLog(sync_type="ant_acc_full", status="running")
     db.add(log)
     await db.commit()
@@ -541,6 +545,8 @@ async def sync_vta(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ) -> dict:
+    if await _is_running("vta"):
+        return {"status": "already_running"}
     log = EtlSyncLog(sync_type="vta_full", status="running")
     db.add(log)
     await db.commit()
@@ -555,6 +561,8 @@ async def sync_mtt(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ) -> dict:
+    if await _is_running("mtt"):
+        return {"status": "already_running"}
     log = EtlSyncLog(sync_type="mtt_full", status="running")
     db.add(log)
     await db.commit()
