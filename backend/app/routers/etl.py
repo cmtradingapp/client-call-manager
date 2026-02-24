@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.auth_deps import get_current_user, require_admin
 from app.database import execute_query
 from app.models.etl_sync_log import EtlSyncLog
-from app.pg_database import AsyncSessionLocal, get_db
+from app.pg_database import AsyncSessionLocal, engine, get_db
 from app.replica_database import get_replica_db
 
 logger = logging.getLogger(__name__)
@@ -480,6 +480,21 @@ async def daily_full_sync_all() -> None:
         logger.info("Daily sync: mtt already running, skipped")
 
     logger.info("Daily full sync complete")
+
+
+# ---------------------------------------------------------------------------
+# Retention materialized view refresh
+# ---------------------------------------------------------------------------
+
+async def refresh_retention_mv() -> None:
+    """Refresh retention_mv CONCURRENTLY so reads never block during refresh."""
+    try:
+        async with engine.connect() as conn:
+            await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY retention_mv"))
+        logger.info("retention_mv refreshed")
+    except Exception as e:
+        logger.error("retention_mv refresh failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

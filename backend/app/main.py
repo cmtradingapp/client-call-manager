@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, refresh_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -85,6 +86,78 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
+    # Create retention materialized view (pre-computed aggregation for fast agent queries)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("""
+            CREATE MATERIALIZED VIEW IF NOT EXISTS retention_mv AS
+            WITH qualifying_logins AS (
+                SELECT vta.login, a.accountid
+                FROM ant_acc a
+                INNER JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = a.accountid
+                WHERE a.client_qualification_date IS NOT NULL
+                  AND a.client_qualification_date >= '2024-01-01'
+            ),
+            trades_agg AS (
+                SELECT
+                    ql.accountid,
+                    COUNT(t.ticket) AS trade_count,
+                    COALESCE(SUM(t.computed_profit), 0) AS total_profit,
+                    MAX(t.open_time) AS last_trade_date,
+                    MAX(t.close_time) AS last_close_time
+                FROM qualifying_logins ql
+                LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)
+                    AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN ('inactivity', 'zeroingusd', 'spread'))
+                GROUP BY ql.accountid
+            ),
+            deposits_agg AS (
+                SELECT
+                    ql.accountid,
+                    COUNT(mtt.mttransactionsid) AS deposit_count,
+                    COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
+                    MAX(mtt.confirmation_time) AS last_deposit_time
+                FROM qualifying_logins ql
+                LEFT JOIN vtiger_mttransactions mtt ON mtt.login = ql.login
+                    AND mtt.transactionapproval = 'Approved'
+                    AND mtt.transactiontype = 'Deposit'
+                    AND (mtt.payment_method IS NULL OR mtt.payment_method != 'BonusProtectedPositionCashback')
+                GROUP BY ql.accountid
+            ),
+            balance_agg AS (
+                SELECT
+                    ql.accountid,
+                    COALESCE(SUM(vta.balance), 0) AS total_balance,
+                    COALESCE(SUM(vta.credit), 0) AS total_credit
+                FROM qualifying_logins ql
+                INNER JOIN vtiger_trading_accounts vta ON vta.login = ql.login
+                GROUP BY ql.accountid
+            )
+            SELECT
+                a.accountid,
+                a.client_qualification_date,
+                ta.trade_count,
+                ta.total_profit,
+                ta.last_trade_date,
+                ta.last_close_time,
+                da.deposit_count,
+                da.total_deposit,
+                da.last_deposit_time,
+                ab.total_balance,
+                ab.total_credit
+            FROM ant_acc a
+            INNER JOIN trades_agg ta ON ta.accountid = a.accountid
+            INNER JOIN deposits_agg da ON da.accountid = a.accountid
+            INNER JOIN balance_agg ab ON ab.accountid = a.accountid
+            WHERE a.client_qualification_date IS NOT NULL
+            WITH NO DATA
+        """))
+        await session.commit()
+    # Unique index required for CONCURRENTLY refresh
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS retention_mv_accountid ON retention_mv (accountid)"
+        ))
+        await session.commit()
+    logger.info("retention_mv and unique index created/verified")
     # Tune PostgreSQL for this workload (requires superuser; silently skipped if not available)
     try:
         async with AsyncSessionLocal() as session:
@@ -149,6 +222,12 @@ async def lifespan(app: FastAPI):
         "cron",
         hour=0,
         minute=0,
+    )
+    scheduler.add_job(
+        refresh_retention_mv,
+        "interval",
+        minutes=3,
+        next_run_time=datetime.now(),
     )
     scheduler.start()
     logger.info("ETL scheduler started — incremental sync every 5 minutes, daily full sync at midnight")
