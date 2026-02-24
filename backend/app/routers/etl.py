@@ -15,9 +15,13 @@ from app.replica_database import get_replica_db
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_TRADES_BATCH_SIZE = 2_000
+_TRADES_BATCH_SIZE = 10_000
 _ANT_ACC_BATCH_SIZE = 5_000
 
+_TRADES_INSERT = (
+    "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time)"
+    " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time)"
+)
 _TRADES_UPSERT = (
     "INSERT INTO trades_mt4 (ticket, login, cmd, profit, notional_value, close_time, open_time)"
     " VALUES (:ticket, :login, :cmd, :profit, :notional_value, :close_time, :open_time)"
@@ -108,7 +112,7 @@ async def _run_full_sync_trades(log_id: int) -> None:
                 break
 
             async with AsyncSessionLocal() as db:
-                await db.execute(text(_TRADES_UPSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
+                await db.execute(text(_TRADES_INSERT), [{"ticket": r[0], "login": r[1], "cmd": r[2], "profit": r[3], "notional_value": r[4], "close_time": r[5], "open_time": r[6]} for r in rows])
                 await db.commit()
 
             total += len(rows)
