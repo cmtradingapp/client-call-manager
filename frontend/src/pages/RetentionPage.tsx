@@ -10,14 +10,17 @@ api.interceptors.request.use((config) => {
 });
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'trade_count' | 'days_in_retention' | 'total_profit';
+type SortCol = 'accountid' | 'trade_count' | 'days_in_retention' | 'total_profit' | 'active' | 'active_ftd';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
+type BoolFilter = '' | 'true' | 'false';
 
 interface RetentionClient {
   accountid: string;
   trade_count: number;
   days_in_retention: number | null;
   total_profit: number;
+  active: boolean;
+  active_ftd: boolean;
 }
 
 interface Filters {
@@ -28,6 +31,8 @@ interface Filters {
   days_val: string;
   profit_op: NumOp;
   profit_val: string;
+  active: BoolFilter;
+  active_ftd: BoolFilter;
 }
 
 const EMPTY_FILTERS: Filters = {
@@ -38,6 +43,8 @@ const EMPTY_FILTERS: Filters = {
   days_val: '',
   profit_op: '',
   profit_val: '',
+  active: '',
+  active_ftd: '',
 };
 
 function countActive(f: Filters) {
@@ -46,6 +53,8 @@ function countActive(f: Filters) {
     f.trade_count_op && f.trade_count_val,
     f.days_op && f.days_val,
     f.profit_op && f.profit_val,
+    f.active,
+    f.active_ftd,
   ].filter(Boolean).length;
 }
 
@@ -54,28 +63,15 @@ function SortIcon({ col, sortBy, sortDir }: { col: SortCol; sortBy: SortCol; sor
   return <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
 }
 
-function NumericFilter({
-  label,
-  op,
-  val,
-  onOp,
-  onVal,
-}: {
-  label: string;
-  op: NumOp;
-  val: string;
-  onOp: (v: NumOp) => void;
-  onVal: (v: string) => void;
+function NumericFilter({ label, op, val, onOp, onVal }: {
+  label: string; op: NumOp; val: string;
+  onOp: (v: NumOp) => void; onVal: (v: string) => void;
 }) {
   return (
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
       <div className="flex gap-1">
-        <select
-          value={op}
-          onChange={(e) => onOp(e.target.value as NumOp)}
-          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        >
+        <select value={op} onChange={(e) => onOp(e.target.value as NumOp)} className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
           <option value="">—</option>
           <option value="eq">= Equal</option>
           <option value="gt">&gt; Greater</option>
@@ -83,17 +79,31 @@ function NumericFilter({
           <option value="lt">&lt; Less</option>
           <option value="lte">≤ At most</option>
         </select>
-        <input
-          type="number"
-          value={val}
-          onChange={(e) => onVal(e.target.value)}
-          disabled={!op}
-          placeholder="Value"
-          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-28 disabled:bg-gray-50 disabled:text-gray-400"
-        />
+        <input type="number" value={val} onChange={(e) => onVal(e.target.value)} disabled={!op} placeholder="Value"
+          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-28 disabled:bg-gray-50 disabled:text-gray-400" />
       </div>
     </div>
   );
+}
+
+function BoolSelect({ label, value, onChange }: { label: string; value: BoolFilter; onChange: (v: BoolFilter) => void }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value as BoolFilter)}
+        className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-full">
+        <option value="">Any</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    </div>
+  );
+}
+
+function BoolBadge({ value }: { value: boolean }) {
+  return value
+    ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Yes</span>
+    : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">No</span>;
 }
 
 export function RetentionPage() {
@@ -104,8 +114,6 @@ export function RetentionPage() {
   const [sortBy, setSortBy] = useState<SortCol>('accountid');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
-
-  // Draft (what user is editing) vs applied (what is sent to API)
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
 
@@ -115,17 +123,12 @@ export function RetentionPage() {
     try {
       const res = await api.get('/retention/clients', {
         params: {
-          page: p,
-          page_size: PAGE_SIZE,
-          sort_by: col,
-          sort_dir: dir,
+          page: p, page_size: PAGE_SIZE, sort_by: col, sort_dir: dir,
           accountid: f.accountid,
-          trade_count_op: f.trade_count_op,
-          trade_count_val: f.trade_count_val || undefined,
-          days_op: f.days_op,
-          days_val: f.days_val || undefined,
-          profit_op: f.profit_op,
-          profit_val: f.profit_val || undefined,
+          trade_count_op: f.trade_count_op, trade_count_val: f.trade_count_val || undefined,
+          days_op: f.days_op, days_val: f.days_val || undefined,
+          profit_op: f.profit_op, profit_val: f.profit_val || undefined,
+          active: f.active, active_ftd: f.active_ftd,
         },
       });
       setData(res.data);
@@ -144,19 +147,9 @@ export function RetentionPage() {
     setPage(1);
   };
 
-  const applyFilters = () => {
-    setApplied({ ...draft });
-    setPage(1);
-  };
-
-  const clearFilters = () => {
-    setDraft(EMPTY_FILTERS);
-    setApplied(EMPTY_FILTERS);
-    setPage(1);
-  };
-
-  const setField = <K extends keyof Filters>(key: K, val: Filters[K]) =>
-    setDraft((prev) => ({ ...prev, [key]: val }));
+  const applyFilters = () => { setApplied({ ...draft }); setPage(1); };
+  const clearFilters = () => { setDraft(EMPTY_FILTERS); setApplied(EMPTY_FILTERS); setPage(1); };
+  const setField = <K extends keyof Filters>(key: K, val: Filters[K]) => setDraft((prev) => ({ ...prev, [key]: val }));
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const activeCount = countActive(applied);
@@ -168,74 +161,35 @@ export function RetentionPage() {
     <div className="space-y-4">
       {/* Collapsible filters */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <button
-          onClick={() => setFiltersOpen((v) => !v)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
+        <button onClick={() => setFiltersOpen((v) => !v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-700">Filters</span>
-            {activeCount > 0 && (
-              <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                {activeCount} active
-              </span>
-            )}
+            {activeCount > 0 && <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">{activeCount} active</span>}
           </div>
           <span className="text-gray-400 text-xs">{filtersOpen ? '▲ Hide' : '▼ Show'}</span>
         </button>
 
         {filtersOpen && (
           <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* Account ID */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Account ID</label>
-                <input
-                  type="text"
-                  value={draft.accountid}
-                  onChange={(e) => setField('accountid', e.target.value)}
-                  placeholder="Contains…"
-                  className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <input type="text" value={draft.accountid} onChange={(e) => setField('accountid', e.target.value)}
+                  placeholder="Contains…" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-
-              <NumericFilter
-                label="Trade Count"
-                op={draft.trade_count_op}
-                val={draft.trade_count_val}
-                onOp={(v) => setField('trade_count_op', v)}
-                onVal={(v) => setField('trade_count_val', v)}
-              />
-
-              <NumericFilter
-                label="Days in Retention"
-                op={draft.days_op}
-                val={draft.days_val}
-                onOp={(v) => setField('days_op', v)}
-                onVal={(v) => setField('days_val', v)}
-              />
-
-              <NumericFilter
-                label="Total Profit"
-                op={draft.profit_op}
-                val={draft.profit_val}
-                onOp={(v) => setField('profit_op', v)}
-                onVal={(v) => setField('profit_val', v)}
-              />
+              <NumericFilter label="Trade Count" op={draft.trade_count_op} val={draft.trade_count_val}
+                onOp={(v) => setField('trade_count_op', v)} onVal={(v) => setField('trade_count_val', v)} />
+              <NumericFilter label="Days in Retention" op={draft.days_op} val={draft.days_val}
+                onOp={(v) => setField('days_op', v)} onVal={(v) => setField('days_val', v)} />
+              <NumericFilter label="Total Profit" op={draft.profit_op} val={draft.profit_val}
+                onOp={(v) => setField('profit_op', v)} onVal={(v) => setField('profit_val', v)} />
+              <BoolSelect label="Active (trade in last 7d)" value={draft.active} onChange={(v) => setField('active', v)} />
+              <BoolSelect label="Active FTD (qualified + trade in last 7d)" value={draft.active_ftd} onChange={(v) => setField('active_ftd', v)} />
             </div>
-
             <div className="flex gap-2">
-              <button
-                onClick={applyFilters}
-                className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-              >
-                Apply Filters
-              </button>
-              <button
-                onClick={clearFilters}
-                className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-md text-sm font-medium hover:bg-gray-50"
-              >
-                Clear All
-              </button>
+              <button onClick={applyFilters} className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700">Apply Filters</button>
+              <button onClick={clearFilters} className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-md text-sm font-medium hover:bg-gray-50">Clear All</button>
             </div>
           </div>
         )}
@@ -266,13 +220,15 @@ export function RetentionPage() {
                 <th className={thClass} onClick={() => handleSort('trade_count')}>Trade Count <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('days_in_retention')}>Days in Retention <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
@@ -282,6 +238,8 @@ export function RetentionPage() {
                     <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {c.total_profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
+                    <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
+                    <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
                   </tr>
                 ))
               )}

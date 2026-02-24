@@ -14,6 +14,8 @@ _SORT_COLS = {
     "trade_count": "trade_count",
     "days_in_retention": "days_in_retention",
     "total_profit": "total_profit",
+    "active": "active",
+    "active_ftd": "active_ftd",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -30,7 +32,7 @@ async def get_retention_clients(
     page_size: int = Query(50, ge=1, le=200),
     sort_by: str = Query("accountid"),
     sort_dir: str = Query("asc"),
-    # filters
+    # text / numeric filters
     accountid: str = Query(""),
     trade_count_op: str = Query(""),
     trade_count_val: float | None = Query(None),
@@ -38,6 +40,9 @@ async def get_retention_clients(
     days_val: float | None = Query(None),
     profit_op: str = Query(""),
     profit_val: float | None = Query(None),
+    # boolean filters
+    active: str = Query(""),        # "true" | "false" | ""
+    active_ftd: str = Query(""),    # "true" | "false" | ""
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -71,6 +76,19 @@ async def get_retention_clients(
                 having.append(cond)
                 params["profit_val"] = profit_val
 
+        _active_expr = "COALESCE(BOOL_OR(t.close_time IS NOT NULL AND t.close_time > CURRENT_DATE - INTERVAL '7 days'), false)"
+        _ftd_expr = f"(a.client_qualification_date > CURRENT_DATE - INTERVAL '7 days' AND {_active_expr})"
+
+        if active == "true":
+            having.append(f"{_active_expr} = true")
+        elif active == "false":
+            having.append(f"{_active_expr} = false")
+
+        if active_ftd == "true":
+            having.append(f"{_ftd_expr} = true")
+        elif active_ftd == "false":
+            having.append(f"{_ftd_expr} = false")
+
         where_clause = " AND ".join(where)
         having_clause = f"HAVING {' AND '.join(having)}" if having else ""
 
@@ -96,7 +114,9 @@ async def get_retention_clients(
                     a.client_qualification_date,
                     (CURRENT_DATE - a.client_qualification_date) AS days_in_retention,
                     COUNT(t.ticket) AS trade_count,
-                    COALESCE(SUM(t.profit), 0) AS total_profit
+                    COALESCE(SUM(t.profit), 0) AS total_profit,
+                    {_active_expr} AS active,
+                    {_ftd_expr} AS active_ftd
                 {base}
                 ORDER BY {sort_col} {direction}
                 LIMIT :limit OFFSET :offset
@@ -115,6 +135,8 @@ async def get_retention_clients(
                     "trade_count": int(r["trade_count"]),
                     "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
                     "total_profit": float(r["total_profit"]),
+                    "active": bool(r["active"]),
+                    "active_ftd": bool(r["active_ftd"]),
                 }
                 for r in rows
             ],

@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, Index, Numeric, SmallInteger
+from sqlalchemy import BigInteger, Column, DateTime, Index, Numeric, SmallInteger
 
 from app.pg_database import Base
 
@@ -10,5 +10,6 @@ class TradesMt4(Base):
     login = Column(BigInteger, nullable=False)
     cmd = Column(SmallInteger, nullable=False)
     profit = Column(Numeric(18, 2), nullable=True)
+    close_time = Column(DateTime(timezone=False), nullable=True)
 
     __table_args__ = (Index("ix_trades_mt4_login", "login"),)
