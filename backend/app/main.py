@@ -66,6 +66,16 @@ async def lifespan(app: FastAPI):
         mv_exists = (await session.execute(
             _text("SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = 'retention_mv')")
         )).scalar()
+        # Drop and recreate if old definition used close_time instead of open_time
+        if mv_exists:
+            has_epoch = (await session.execute(
+                _text("SELECT EXISTS(SELECT 1 FROM retention_mv WHERE last_close_time < '2000-01-01')")
+            )).scalar()
+            if has_epoch:
+                await session.execute(_text("DROP MATERIALIZED VIEW retention_mv CASCADE"))
+                await session.commit()
+                mv_exists = False
+                logger.info("retention_mv dropped for recreation — switching last_close_time to open_time")
     if not mv_exists:
         async with AsyncSessionLocal() as session:
             await session.execute(_text("""
@@ -83,7 +93,7 @@ async def lifespan(app: FastAPI):
                     COUNT(t.ticket) AS trade_count,
                     COALESCE(SUM(t.computed_profit), 0) AS total_profit,
                     MAX(t.open_time) AS last_trade_date,
-                    MAX(t.close_time) AS last_close_time
+                    MAX(t.open_time) AS last_close_time
                 FROM qualifying_logins ql
                 LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)
                     AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN ('inactivity', 'zeroingusd', 'spread'))
