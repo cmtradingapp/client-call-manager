@@ -43,6 +43,8 @@ _SORT_COLS = {
     "open_pnl": "m.total_equity",  # sorted by equity as proxy; open_pnl is fetched live
     "sales_client_potential": "m.sales_client_potential",
     "age": "EXTRACT(year FROM AGE(m.birth_date))",
+    "assigned_to": "m.assigned_to",
+    "agent_name": "m.assigned_to",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -77,11 +79,15 @@ async def get_retention_clients(
     balance_val: float | None = Query(None),
     credit_op: str = Query(""),
     credit_val: float | None = Query(None),
+    equity_op: str = Query(""),
+    equity_val: float | None = Query(None),
     # date range filters
     qual_date_from: str = Query(""),
     qual_date_to: str = Query(""),
     last_trade_from: str = Query(""),
     last_trade_to: str = Query(""),
+    # agent filter
+    assigned_to: str = Query(""),
     # boolean filters
     active: str = Query(""),
     active_ftd: str = Query(""),
@@ -171,6 +177,16 @@ async def get_retention_clients(
                 where.append(cond)
                 params["credit_val"] = credit_val
 
+        if equity_op and equity_val is not None:
+            cond = _num_cond(equity_op, "m.total_equity", "equity_val")
+            if cond:
+                where.append(cond)
+                params["equity_val"] = equity_val
+
+        if assigned_to:
+            where.append("m.assigned_to = :assigned_to")
+            params["assigned_to"] = assigned_to
+
         if active == "true":
             where.append(f"({_MV_ACTIVE})")
         elif active == "false":
@@ -210,6 +226,7 @@ async def get_retention_clients(
                     m.total_balance AS balance,
                     m.total_credit AS credit,
                     m.total_equity AS equity{_extra_sel},
+                    m.assigned_to,
                     m.sales_client_potential,
                     CASE WHEN m.birth_date IS NOT NULL
                          THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
@@ -221,6 +238,21 @@ async def get_retention_clients(
             {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )
         rows = rows_result.mappings().all()
+
+        # Build agent name map from vtiger_users for this page
+        agent_map: dict = {}
+        try:
+            agent_ids = list({str(r["assigned_to"]) for r in rows if r["assigned_to"]})
+            if agent_ids:
+                agent_result = await db.execute(
+                    text("SELECT id, first_name, last_name FROM vtiger_users WHERE id = ANY(:ids)"),
+                    {"ids": agent_ids},
+                )
+                for ag in agent_result.fetchall():
+                    name = f"{ag[1] or ''} {ag[2] or ''}".strip()
+                    agent_map[str(ag[0])] = name or None
+        except Exception as agent_err:
+            logger.warning("Could not fetch agent names: %s", agent_err)
 
         # Fetch Open PNL live from the replica for this page's accounts
         open_pnl_map: dict = {}
@@ -270,6 +302,8 @@ async def get_retention_clients(
                     "credit": float(r["credit"]),
                     "equity": float(r["equity"]),
                     "open_pnl": open_pnl_map.get(str(r["accountid"]), 0.0),
+                    "assigned_to": r["assigned_to"],
+                    "agent_name": agent_map.get(str(r["assigned_to"])) if r["assigned_to"] else None,
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
                     **{col: r[col] for col in _extra_col_names},
@@ -281,3 +315,22 @@ async def get_retention_clients(
         if "has not been populated" in str(e):
             raise HTTPException(status_code=503, detail="Data is being prepared, please try again in a moment.")
         raise HTTPException(status_code=502, detail=f"Query failed: {e}")
+
+
+@router.get("/retention/agents")
+async def get_retention_agents(
+    _: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list:
+    try:
+        result = await db.execute(
+            text("SELECT id, first_name, last_name FROM vtiger_users ORDER BY first_name, last_name")
+        )
+        rows = result.fetchall()
+        return [
+            {"id": str(r[0]), "name": f"{r[1] or ''} {r[2] or ''}".strip()}
+            for r in rows
+            if r[0]
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch agents: {e}")

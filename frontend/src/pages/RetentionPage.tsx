@@ -28,7 +28,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age';
+type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age' | 'agent_name';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -48,6 +48,8 @@ interface RetentionClient {
   credit: number;
   equity: number;
   open_pnl: number;
+  assigned_to: string | null;
+  agent_name: string | null;
   sales_client_potential: string | null;
   age: number | null;
 }
@@ -75,6 +77,9 @@ interface Filters {
   balance_val: string;
   credit_op: NumOp;
   credit_val: string;
+  equity_op: NumOp;
+  equity_val: string;
+  assigned_to: string;
   active: BoolFilter;
   active_ftd: BoolFilter;
 }
@@ -102,6 +107,9 @@ const EMPTY_FILTERS: Filters = {
   balance_val: '',
   credit_op: '',
   credit_val: '',
+  equity_op: '',
+  equity_val: '',
+  assigned_to: '',
   active: '',
   active_ftd: '',
 };
@@ -120,6 +128,8 @@ function countActive(f: Filters) {
     f.total_deposit_op && f.total_deposit_val,
     f.balance_op && f.balance_val,
     f.credit_op && f.credit_val,
+    f.equity_op && f.equity_val,
+    f.assigned_to,
     f.active,
     f.active_ftd,
   ].filter(Boolean).length;
@@ -193,6 +203,11 @@ export function RetentionPage() {
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [activityDays, setActivityDays] = useState('35');
+  const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    api.get('/retention/agents').then((r) => setAgents(r.data)).catch(() => {});
+  }, []);
 
   const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters, actDays: string) => {
     setLoading(true);
@@ -214,6 +229,8 @@ export function RetentionPage() {
           total_deposit_op: f.total_deposit_op, total_deposit_val: f.total_deposit_val || undefined,
           balance_op: f.balance_op, balance_val: f.balance_val || undefined,
           credit_op: f.credit_op, credit_val: f.credit_val || undefined,
+          equity_op: f.equity_op, equity_val: f.equity_val || undefined,
+          assigned_to: f.assigned_to || undefined,
           active: f.active, active_ftd: f.active_ftd,
           activity_days: actDays || 35,
         },
@@ -336,6 +353,22 @@ export function RetentionPage() {
                 onOp={(v) => setField('balance_op', v)} onVal={(v) => setField('balance_val', v)} />
               <NumericFilter label="Credit" op={draft.credit_op} val={draft.credit_val}
                 onOp={(v) => setField('credit_op', v)} onVal={(v) => setField('credit_val', v)} />
+              <NumericFilter label="Equity" op={draft.equity_op} val={draft.equity_val}
+                onOp={(v) => setField('equity_op', v)} onVal={(v) => setField('equity_val', v)} />
+              {/* Agent filter */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Agent</label>
+                <select
+                  value={draft.assigned_to}
+                  onChange={(e) => setField('assigned_to', e.target.value)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-full"
+                >
+                  <option value="">All agents</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                  ))}
+                </select>
+              </div>
               {/* Activity window */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Activity Window (days)</label>
@@ -379,6 +412,7 @@ export function RetentionPage() {
             <thead className="bg-gray-50 sticky top-0">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('agent_name')}>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('client_qualification_date')}>Qual. Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></th>
@@ -399,15 +433,16 @@ export function RetentionPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={17} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={18} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={17} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={18} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium">
                       <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
                     </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
