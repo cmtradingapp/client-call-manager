@@ -209,7 +209,7 @@ async def lifespan(app: FastAPI):
         minutes=3,
     )
     scheduler.start()
-    logger.info("ETL scheduler started — incremental sync every 5 minutes, daily full sync at midnight")
+    logger.info("ETL scheduler started — incremental sync every 30 minutes, daily full sync at midnight")
 
     yield
 
