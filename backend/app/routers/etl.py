@@ -151,7 +151,8 @@ async def incremental_sync_trades(
             await db.refresh(log)
             log_id = log.id
 
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=3)
+        # Replica stores last_modified as timestamp without time zone — strip tz
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(tzinfo=None)
         total = 0
         offset = 0
 
