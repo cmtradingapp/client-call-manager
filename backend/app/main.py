@@ -61,25 +61,14 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
-    # Create retention materialized view — check catalog first to avoid locking the view
+    # Always recreate retention_mv with latest definition (WITH NO DATA = instant DDL, no lock contention)
     async with AsyncSessionLocal() as session:
-        mv_exists = (await session.execute(
-            _text("SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = 'retention_mv')")
-        )).scalar()
-        # Drop and recreate if old definition used close_time instead of open_time
-        if mv_exists:
-            has_epoch = (await session.execute(
-                _text("SELECT EXISTS(SELECT 1 FROM retention_mv WHERE last_close_time < '2000-01-01')")
-            )).scalar()
-            if has_epoch:
-                await session.execute(_text("DROP MATERIALIZED VIEW retention_mv CASCADE"))
-                await session.commit()
-                mv_exists = False
-                logger.info("retention_mv dropped for recreation — switching last_close_time to open_time")
-    if not mv_exists:
-        async with AsyncSessionLocal() as session:
-            await session.execute(_text("""
-                CREATE MATERIALIZED VIEW IF NOT EXISTS retention_mv AS
+        await session.execute(_text("DROP MATERIALIZED VIEW IF EXISTS retention_mv CASCADE"))
+        await session.commit()
+    logger.info("retention_mv dropped for recreation (if existed)")
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("""
+            CREATE MATERIALIZED VIEW retention_mv AS
             WITH qualifying_logins AS (
                 SELECT vta.login, a.accountid
                 FROM ant_acc a
@@ -137,21 +126,16 @@ async def lifespan(app: FastAPI):
             INNER JOIN trades_agg ta ON ta.accountid = a.accountid
             INNER JOIN deposits_agg da ON da.accountid = a.accountid
             INNER JOIN balance_agg ab ON ab.accountid = a.accountid
-                WHERE a.client_qualification_date IS NOT NULL
-                WITH NO DATA
-            """))
-            await session.commit()
-    # Create unique index only if it doesn't exist — check catalog to avoid locking the view
+            WHERE a.client_qualification_date IS NOT NULL
+            WITH NO DATA
+        """))
+        await session.commit()
+    # Unique index is always created fresh (MV was just recreated)
     async with AsyncSessionLocal() as session:
-        idx_exists = (await session.execute(
-            _text("SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'retention_mv_accountid')")
-        )).scalar()
-    if not idx_exists:
-        async with AsyncSessionLocal() as session:
-            await session.execute(_text(
-                "CREATE UNIQUE INDEX retention_mv_accountid ON retention_mv (accountid)"
-            ))
-            await session.commit()
+        await session.execute(_text(
+            "CREATE UNIQUE INDEX retention_mv_accountid ON retention_mv (accountid)"
+        ))
+        await session.commit()
     logger.info("retention_mv and unique index created/verified")
     # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
     try:
@@ -271,11 +255,17 @@ async def health_replica() -> dict:
         return {"status": "not_configured", "detail": "REPLICA_DB_HOST is not set"}
     try:
         from sqlalchemy import text
+        result = {}
         async def _check():
             async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
+                row = (await conn.execute(text(
+                    "SELECT NOW() AS server_now, NOW() AT TIME ZONE 'UTC' AS server_utc, current_setting('TimeZone') AS tz"
+                ))).first()
+                result["server_now"] = row[0].isoformat() if row[0] else None
+                result["server_utc"] = row[1].isoformat() if row[1] else None
+                result["server_timezone"] = row[2]
         await asyncio.wait_for(_check(), timeout=5.0)
-        return {"status": "ok", "host": settings.replica_db_host, "port": settings.replica_db_port, "db": settings.replica_db_name}
+        return {"status": "ok", "host": settings.replica_db_host, "port": settings.replica_db_port, "db": settings.replica_db_name, **result}
     except asyncio.TimeoutError:
         return {"status": "error", "detail": "Connection timed out — IP may not be whitelisted"}
     except Exception as e:
