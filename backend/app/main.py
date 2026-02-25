@@ -112,10 +112,10 @@ async def lifespan(app: FastAPI):
             balance_agg AS (
                 SELECT
                     ql.accountid,
-                    COALESCE(SUM(vta.balance), 0) AS total_balance,
-                    COALESCE(SUM(vta.credit), 0) AS total_credit
+                    COALESCE(SUM(du.balance), 0) AS total_balance,
+                    COALESCE(SUM(du.credit), 0) AS total_credit
                 FROM qualifying_logins ql
-                INNER JOIN vtiger_trading_accounts vta ON vta.login = ql.login
+                LEFT JOIN dealio_users du ON du.login = ql.login
                 GROUP BY ql.accountid
             )
             SELECT
