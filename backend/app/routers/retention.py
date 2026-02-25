@@ -187,9 +187,7 @@ async def get_retention_clients(
 
         _extra_sel = ""
         if _extra_col_names:
-            _extra_sel = ",
-                    " + ",
-                    ".join("m." + c for c in _extra_col_names)
+            _extra_sel = ",\n                    " + ",\n                    ".join("m." + c for c in _extra_col_names)
         rows_result = await db.execute(
             text(f"""
                 SELECT
