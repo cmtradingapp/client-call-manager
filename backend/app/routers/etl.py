@@ -507,6 +507,7 @@ async def refresh_retention_mv() -> None:
 
         async with engine.connect() as conn:
             await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn.execute(text("SET work_mem = '256MB'"))
             if ispopulated:
                 await conn.execute(text("REFRESH MATERIALIZED VIEW CONCURRENTLY retention_mv"))
             else:

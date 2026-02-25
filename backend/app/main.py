@@ -143,15 +143,16 @@ async def lifespan(app: FastAPI):
             ))
             await session.commit()
     logger.info("retention_mv and unique index created/verified")
-    # Tune PostgreSQL for this workload (requires superuser; silently skipped if not available)
+    # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
     try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(_text("ALTER SYSTEM SET work_mem = '256MB'"))
-            await session.execute(_text("ALTER SYSTEM SET effective_cache_size = '9GB'"))
-            await session.execute(_text("ALTER SYSTEM SET shared_buffers = '3GB'"))
-            await session.execute(_text("ALTER SYSTEM SET maintenance_work_mem = '512MB'"))
-            await session.execute(_text("SELECT pg_reload_conf()"))
-            await session.commit()
+        from app.pg_database import engine as _pg_engine
+        async with _pg_engine.connect() as _conn:
+            await _conn.execution_options(isolation_level="AUTOCOMMIT")
+            await _conn.execute(_text("ALTER SYSTEM SET work_mem = '256MB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET effective_cache_size = '9GB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET shared_buffers = '3GB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET maintenance_work_mem = '512MB'"))
+            await _conn.execute(_text("SELECT pg_reload_conf()"))
         logger.info("PostgreSQL system settings tuned")
     except Exception as pg_tune_err:
         logger.warning("Could not apply PostgreSQL system settings (need superuser): %s", pg_tune_err)
