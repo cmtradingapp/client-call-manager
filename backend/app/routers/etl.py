@@ -49,8 +49,8 @@ _ant_acc_map = lambda r: {  # noqa: E731
     "client_qualification_date": r["client_qualification_date"],
     "modifiedtime": r["modifiedtime"],
     "is_test_account": r["is_test_account"],
-    "sales_client_potential": r["sales_client_potential"],
-    "birth_date": r["birth_date"],
+    "sales_client_potential": str(r["sales_client_potential"]) if r["sales_client_potential"] is not None else None,
+    "birth_date": r["birth_date"].date() if hasattr(r["birth_date"], "date") else r["birth_date"],
 }
 
 
