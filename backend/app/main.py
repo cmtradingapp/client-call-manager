@@ -164,6 +164,11 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(timeout=30.0)
     logger.info("Shared HTTP client initialised")
 
+    # Widen sync_type column if still VARCHAR(20) — dealio_users_incremental is 24 chars
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE etl_sync_log ALTER COLUMN sync_type TYPE VARCHAR(50)"))
+        await session.commit()
+    logger.info("etl_sync_log.sync_type column widened to VARCHAR(50)")
     from app.replica_database import _ReplicaSession
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
