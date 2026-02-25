@@ -480,6 +480,7 @@ async def daily_full_sync_all() -> None:
         logger.info("Daily sync: mtt already running, skipped")
 
     logger.info("Daily full sync complete")
+    await refresh_retention_mv()
 
 
 # ---------------------------------------------------------------------------
@@ -487,10 +488,19 @@ async def daily_full_sync_all() -> None:
 # ---------------------------------------------------------------------------
 
 async def refresh_retention_mv() -> None:
-    """Refresh retention_mv. Uses CONCURRENTLY when populated (reads never block),
-    falls back to regular REFRESH on first run when the view is still empty."""
+    """Refresh retention_mv. Skips if a full ETL sync is running to avoid
+    conflicting with TRUNCATE. Uses CONCURRENTLY when populated so reads
+    never block; falls back to regular REFRESH on first population."""
     try:
         async with AsyncSessionLocal() as db:
+            # Skip if any full sync is running — REFRESH reads conflict with TRUNCATE
+            running = (await db.execute(text(
+                "SELECT 1 FROM etl_sync_log WHERE status = 'running' AND sync_type LIKE '%_full' LIMIT 1"
+            ))).first()
+            if running:
+                logger.info("retention_mv refresh skipped — full ETL sync in progress")
+                return
+
             result = await db.execute(text("SELECT ispopulated FROM pg_matviews WHERE matviewname = 'retention_mv'"))
             row = result.first()
             ispopulated = bool(row[0]) if row else False

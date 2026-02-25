@@ -195,7 +195,6 @@ async def lifespan(app: FastAPI):
         refresh_retention_mv,
         "interval",
         minutes=3,
-        next_run_time=datetime.now(),
     )
     scheduler.start()
     logger.info("ETL scheduler started — incremental sync every 5 minutes, daily full sync at midnight")
