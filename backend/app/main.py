@@ -13,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, incremental_sync_vtiger_users, incremental_sync_vtiger_campaigns, sync_positions_job, refresh_retention_mv, rebuild_retention_mv, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, refresh_retention_mv, rebuild_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -91,19 +91,6 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE dealio_users ADD COLUMN IF NOT EXISTS equity FLOAT"))
         await session.commit()
     logger.info("dealio_users.equity column migration applied")
-    # Create dealio_positions table if missing
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text(
-            "CREATE TABLE IF NOT EXISTS dealio_positions ("
-            "positionid BIGINT PRIMARY KEY, "
-            "login BIGINT, "
-            "computedprofit FLOAT)"
-        ))
-        await session.execute(_text(
-            "CREATE INDEX IF NOT EXISTS ix_dealio_positions_login ON dealio_positions (login)"
-        ))
-        await session.commit()
-    logger.info("dealio_positions table migration applied")
     # Create vtiger_users table if missing
     async with AsyncSessionLocal() as session:
         await session.execute(_text(
@@ -194,26 +181,19 @@ async def lifespan(app: FastAPI):
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
         )
     scheduler.add_job(
-        incremental_sync_vtiger_users,
+        hourly_sync_vtiger_users,
         "interval",
-        minutes=30,
+        hours=1,
         args=[AsyncSessionLocal],
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     scheduler.add_job(
-        incremental_sync_vtiger_campaigns,
+        hourly_sync_vtiger_campaigns,
         "interval",
-        minutes=30,
+        hours=1,
         args=[AsyncSessionLocal],
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
-    if _ReplicaSession is not None:
-        scheduler.add_job(
-            sync_positions_job,
-            "interval",
-            minutes=5,
-            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
-        )
     scheduler.add_job(
         daily_full_sync_all,
         "cron",
@@ -226,7 +206,7 @@ async def lifespan(app: FastAPI):
         minutes=3,
     )
     scheduler.start()
-    logger.info("ETL scheduler started — incremental sync every 30 minutes, daily full sync at midnight")
+    logger.info("ETL scheduler started — incremental sync every 30 min, vtiger hourly full refresh, daily full sync at midnight")
 
     yield
 

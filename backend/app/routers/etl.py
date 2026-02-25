@@ -679,113 +679,52 @@ async def daily_full_sync_all() -> None:
         else:
             logger.info("Daily sync: dealio_users already running, skipped")
 
-    # dealio_positions (only if replica is available) — full refresh
-    if _ReplicaSession is not None:
-        if not await _is_running("positions"):
-            log_id = await _create_log("positions_full")
-            await _run_full_sync_positions(log_id)
-        else:
-            logger.info("Daily sync: positions already running, skipped")
-
-    # vtiger_users
-    if not await _is_running("vtiger_users"):
-        log_id = await _create_log("vtiger_users_full")
-        await _run_full_sync_vtiger_users(log_id)
-    else:
-        logger.info("Daily sync: vtiger_users already running, skipped")
-
-    # vtiger_campaigns
-    if not await _is_running("vtiger_campaigns"):
-        log_id = await _create_log("vtiger_campaigns_full")
-        await _run_full_sync_vtiger_campaigns(log_id)
-    else:
-        logger.info("Daily sync: vtiger_campaigns already running, skipped")
-
     logger.info("Daily full sync complete")
     await refresh_retention_mv()
 
 
 # ---------------------------------------------------------------------------
-# dealio.positions — full sync (open positions, always full-refresh)
+# vtiger_users / vtiger_campaigns — hourly full-refresh jobs
 # ---------------------------------------------------------------------------
 
-_POSITIONS_BATCH = 100_000
-
-_POSITIONS_UPSERT = (
-    "INSERT INTO dealio_positions (positionid, login, computedprofit)"
-    " VALUES (:positionid, :login, :computedprofit)"
-    " ON CONFLICT (positionid) DO UPDATE SET"
-    " login = EXCLUDED.login, computedprofit = EXCLUDED.computedprofit"
-)
-
-
-async def _run_full_sync_positions(log_id: int) -> None:
-    from app.replica_database import _ReplicaSession
-
-    if _ReplicaSession is None:
-        await _update_log(log_id, "error", error="Replica database not configured")
+async def hourly_sync_vtiger_users(session_factory: async_sessionmaker) -> None:
+    """Hourly full truncate+reload of vtiger_users."""
+    if await _is_running("vtiger_users"):
+        logger.info("ETL vtiger_users: skipping — sync already in progress")
         return
-
+    log_id: int | None = None
     try:
-        async with AsyncSessionLocal() as db:
-            await db.execute(text("TRUNCATE TABLE dealio_positions"))
+        async with session_factory() as db:
+            log = EtlSyncLog(sync_type="vtiger_users_full", status="running")
+            db.add(log)
             await db.commit()
-
-        total = 0
-        cursor = 0
-
-        while True:
-            rows = None
-            for attempt in range(5):
-                try:
-                    async with _ReplicaSession() as replica_db:
-                        result = await replica_db.execute(
-                            text(
-                                "SELECT positionid, login, computedprofit FROM dealio.positions"
-                                " WHERE positionid > :cursor ORDER BY positionid LIMIT :limit"
-                            ),
-                            {"cursor": cursor, "limit": _POSITIONS_BATCH},
-                        )
-                        rows = result.fetchall()
-                    break
-                except Exception as e:
-                    if attempt == 4:
-                        raise
-                    wait = 2 ** attempt
-                    logger.warning("ETL positions full: attempt %d failed (%s), retrying in %ds", attempt + 1, e, wait)
-                    await asyncio.sleep(wait)
-
-            if not rows:
-                break
-
-            async with AsyncSessionLocal() as db:
-                await db.execute(
-                    text(_POSITIONS_UPSERT),
-                    [{"positionid": r[0], "login": r[1], "computedprofit": r[2]} for r in rows],
-                )
-                await db.commit()
-
-            total += len(rows)
-            cursor = rows[-1][0]
-            logger.info("ETL positions full: %d rows (cursor=%d)", total, cursor)
-
-            if len(rows) < _POSITIONS_BATCH:
-                break
-
-        await _update_log(log_id, "completed", rows_synced=total)
-        logger.info("ETL positions full sync complete: %d rows", total)
-
+            await db.refresh(log)
+            log_id = log.id
+        await _run_full_sync_vtiger_users(log_id)
     except Exception as e:
-        logger.error("ETL positions full sync failed: %s", e)
-        await _update_log(log_id, "error", error=str(e))
+        logger.error("Hourly vtiger_users sync failed: %s", e)
+        if log_id:
+            await _update_log(log_id, "error", error=str(e))
 
 
-async def sync_positions_job() -> None:
-    """Scheduled full refresh of dealio.positions (open positions change constantly)."""
-    if await _is_running("positions"):
+async def hourly_sync_vtiger_campaigns(session_factory: async_sessionmaker) -> None:
+    """Hourly full truncate+reload of vtiger_campaigns."""
+    if await _is_running("vtiger_campaigns"):
+        logger.info("ETL vtiger_campaigns: skipping — sync already in progress")
         return
-    log_id = await _create_log("positions_full")
-    await _run_full_sync_positions(log_id)
+    log_id: int | None = None
+    try:
+        async with session_factory() as db:
+            log = EtlSyncLog(sync_type="vtiger_campaigns_full", status="running")
+            db.add(log)
+            await db.commit()
+            await db.refresh(log)
+            log_id = log.id
+        await _run_full_sync_vtiger_campaigns(log_id)
+    except Exception as e:
+        logger.error("Hourly vtiger_campaigns sync failed: %s", e)
+        if log_id:
+            await _update_log(log_id, "error", error=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -834,11 +773,6 @@ async def _run_full_sync_vtiger_users(log_id: int) -> None:
     await _mssql_full_sync(log_id, "vtiger_users_full", _VTIGER_USERS_SELECT, "vtiger_users", _VTIGER_USERS_UPSERT, _vtiger_users_map)
 
 
-async def incremental_sync_vtiger_users(session_factory: async_sessionmaker) -> None:
-    if await _is_running("vtiger_users"):
-        logger.info("ETL vtiger_users: skipping scheduled run — sync already in progress")
-        return
-    await _mssql_incremental_sync(session_factory, "vtiger_users_incremental", "vtiger_users", _VTIGER_USERS_SELECT, _VTIGER_USERS_UPSERT, _vtiger_users_map, lookback_hours=3)
 
 
 # ---------------------------------------------------------------------------
@@ -892,11 +826,6 @@ async def _run_full_sync_vtiger_campaigns(log_id: int) -> None:
     await _mssql_full_sync(log_id, "vtiger_campaigns_full", _VTIGER_CAMPAIGNS_SELECT, "vtiger_campaigns", _VTIGER_CAMPAIGNS_UPSERT, _vtiger_campaigns_map)
 
 
-async def incremental_sync_vtiger_campaigns(session_factory: async_sessionmaker) -> None:
-    if await _is_running("vtiger_campaigns"):
-        logger.info("ETL vtiger_campaigns: skipping scheduled run — sync already in progress")
-        return
-    await _mssql_incremental_sync(session_factory, "vtiger_campaigns_incremental", "vtiger_campaigns", _VTIGER_CAMPAIGNS_SELECT, _VTIGER_CAMPAIGNS_UPSERT, _vtiger_campaigns_map, lookback_hours=3)
 
 
 # ---------------------------------------------------------------------------
@@ -1009,11 +938,9 @@ def _build_mv_sql(extra_cols: list) -> str:
         "                    ql.accountid,\n"
         "                    COALESCE(SUM(du.balance), 0) AS total_balance,\n"
         "                    COALESCE(SUM(du.credit), 0) AS total_credit,\n"
-        "                    COALESCE(SUM(du.equity), 0) AS total_equity,\n"
-        "                    COALESCE(SUM(dp.computedprofit), 0) AS open_pnl" + balance_agg_extras + "\n"
+        "                    COALESCE(SUM(du.equity), 0) AS total_equity" + balance_agg_extras + "\n"
         "                FROM qualifying_logins ql\n"
         "                LEFT JOIN dealio_users du ON du.login = ql.login\n"
-        "                LEFT JOIN dealio_positions dp ON dp.login = ql.login\n"
         "                GROUP BY ql.accountid\n"
         "            )" + vta_extras_cte + "\n"
         "            SELECT\n"
@@ -1030,8 +957,7 @@ def _build_mv_sql(extra_cols: list) -> str:
         "                da.last_deposit_time,\n"
         "                ab.total_balance,\n"
         "                ab.total_credit,\n"
-        "                ab.total_equity,\n"
-        "                ab.open_pnl" + final_select_extras + "\n"
+        "                ab.total_equity" + final_select_extras + "\n"
         "            FROM ant_acc a\n"
         "            INNER JOIN trades_agg ta ON ta.accountid = a.accountid\n"
         "            INNER JOIN deposits_agg da ON da.accountid = a.accountid\n"
@@ -1206,22 +1132,6 @@ async def sync_mtt(
     return {"status": "started", "log_id": log.id}
 
 
-@router.post("/etl/sync-positions")
-async def sync_positions(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
-) -> dict:
-    if await _is_running("positions"):
-        return {"status": "already_running"}
-    log = EtlSyncLog(sync_type="positions_full", status="running")
-    db.add(log)
-    await db.commit()
-    await db.refresh(log)
-    background_tasks.add_task(_run_full_sync_positions, log.id)
-    return {"status": "started", "log_id": log.id}
-
-
 @router.post("/etl/sync-vtiger-users")
 async def sync_vtiger_users(
     background_tasks: BackgroundTasks,
@@ -1269,7 +1179,6 @@ async def sync_status(
     vta_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_trading_accounts"))).scalar() or 0
     mtt_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_mttransactions"))).scalar() or 0
     dealio_users_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_users"))).scalar() or 0
-    positions_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_positions"))).scalar() or 0
     vtiger_users_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_users"))).scalar() or 0
     vtiger_campaigns_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_campaigns"))).scalar() or 0
 
@@ -1283,7 +1192,6 @@ async def sync_status(
     vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     dealio_users_last = _last_row((await db.execute(text("SELECT login, lastupdate FROM dealio_users WHERE lastupdate <= NOW() ORDER BY lastupdate DESC NULLS LAST LIMIT 1"))).first())
-    positions_last = _last_row((await db.execute(text("SELECT positionid, NULL FROM dealio_positions ORDER BY positionid DESC LIMIT 1"))).first())
     vtiger_users_last = _last_row((await db.execute(text("SELECT userid, modifiedtime FROM vtiger_users WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     vtiger_campaigns_last = _last_row((await db.execute(text("SELECT campaignid, modifiedtime FROM vtiger_campaigns WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
 
@@ -1293,7 +1201,6 @@ async def sync_status(
         "vta_row_count": vta_count,
         "mtt_row_count": mtt_count,
         "dealio_users_row_count": dealio_users_count,
-        "positions_row_count": positions_count,
         "vtiger_users_row_count": vtiger_users_count,
         "vtiger_campaigns_row_count": vtiger_campaigns_count,
         "trades_last": trades_last,
@@ -1301,7 +1208,6 @@ async def sync_status(
         "vta_last": vta_last,
         "mtt_last": mtt_last,
         "dealio_users_last": dealio_users_last,
-        "positions_last": positions_last,
         "vtiger_users_last": vtiger_users_last,
         "vtiger_campaigns_last": vtiger_campaigns_last,
         "logs": [

@@ -1,9 +1,13 @@
 from datetime import date
 from typing import Any
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.auth_deps import get_current_user
 from app.pg_database import get_db
@@ -36,7 +40,7 @@ _SORT_COLS = {
     "balance": "m.total_balance",
     "credit": "m.total_credit",
     "equity": "m.total_equity",
-    "open_pnl": "m.open_pnl",
+    "open_pnl": "m.total_equity",  # sorted by equity as proxy; open_pnl is fetched live
     "sales_client_potential": "m.sales_client_potential",
     "age": "EXTRACT(year FROM AGE(m.birth_date))",
 }
@@ -205,8 +209,7 @@ async def get_retention_clients(
                     m.total_deposit,
                     m.total_balance AS balance,
                     m.total_credit AS credit,
-                    m.total_equity AS equity,
-                    m.open_pnl{_extra_sel},
+                    m.total_equity AS equity{_extra_sel},
                     m.sales_client_potential,
                     CASE WHEN m.birth_date IS NOT NULL
                          THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
@@ -218,6 +221,33 @@ async def get_retention_clients(
             {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )
         rows = rows_result.mappings().all()
+
+        # Fetch Open PNL live from the replica for this page's accounts
+        open_pnl_map: dict = {}
+        try:
+            from app.replica_database import _ReplicaSession
+            if _ReplicaSession is not None and rows:
+                account_ids = [str(r["accountid"]) for r in rows]
+                # Map accounts -> logins via local vtiger_trading_accounts
+                login_result = await db.execute(
+                    text("SELECT login, vtigeraccountid FROM vtiger_trading_accounts WHERE vtigeraccountid = ANY(:ids)"),
+                    {"ids": account_ids},
+                )
+                login_rows = login_result.fetchall()
+                logins = [lr[0] for lr in login_rows]
+                login_to_account = {lr[0]: str(lr[1]) for lr in login_rows}
+                if logins:
+                    async with _ReplicaSession() as replica:
+                        pnl_result = await replica.execute(
+                            text("SELECT login, SUM(computedprofit) FROM dealio.positions WHERE login = ANY(:logins) GROUP BY login"),
+                            {"logins": logins},
+                        )
+                        for pnl_row in pnl_result.fetchall():
+                            acct = login_to_account.get(pnl_row[0])
+                            if acct:
+                                open_pnl_map[acct] = open_pnl_map.get(acct, 0.0) + (pnl_row[1] or 0.0)
+        except Exception as pnl_err:
+            logger.warning("Could not fetch open PNL from replica: %s", pnl_err)
 
         return {
             "total": total,
@@ -239,7 +269,7 @@ async def get_retention_clients(
                     "balance": float(r["balance"]),
                     "credit": float(r["credit"]),
                     "equity": float(r["equity"]),
-                    "open_pnl": float(r["open_pnl"]),
+                    "open_pnl": open_pnl_map.get(str(r["accountid"]), 0.0),
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
                     **{col: r[col] for col in _extra_col_names},
