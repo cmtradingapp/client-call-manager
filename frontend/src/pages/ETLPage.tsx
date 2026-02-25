@@ -168,10 +168,12 @@ interface StatusData {
   ant_acc_row_count: number;
   vta_row_count: number;
   mtt_row_count: number;
+  dealio_users_row_count: number;
   trades_last: LastRecord | null;
   ant_acc_last: LastRecord | null;
   vta_last: LastRecord | null;
   mtt_last: LastRecord | null;
+  dealio_users_last: LastRecord | null;
   logs: SyncLog[];
 }
 
@@ -199,6 +201,7 @@ export function ETLPage() {
 
   const sections = [
     { key: 'trades', label: 'Trades', source: 'dealio.trades_mt4', endpoint: '/etl/sync-trades', count: data?.trades_row_count ?? null, last: data?.trades_last ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 30 min using last_modified (3h lookback).' },
+    { key: 'dealio_users', label: 'Dealio Users', source: 'dealio.users', endpoint: '/etl/sync-dealio-users', count: data?.dealio_users_row_count ?? null, last: data?.dealio_users_last ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 30 min using lastupdate (3h lookback).' },
     { key: 'ant_acc', label: 'Accounts', source: 'report.ant_acc', endpoint: '/etl/sync-ant-acc', count: data?.ant_acc_row_count ?? null, last: data?.ant_acc_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },
     { key: 'vta', label: 'Trading Accounts', source: 'report.vtiger_trading_accounts', endpoint: '/etl/sync-vta', count: data?.vta_row_count ?? null, last: data?.vta_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using last_update (3h lookback).' },
     { key: 'mtt', label: 'MT Transactions', source: 'report.vtiger_mttransactions', endpoint: '/etl/sync-mtt', count: data?.mtt_row_count ?? null, last: data?.mtt_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },

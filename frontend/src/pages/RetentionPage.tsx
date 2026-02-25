@@ -10,7 +10,7 @@ api.interceptors.request.use((config) => {
 });
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit';
+type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'sales_client_potential' | 'age';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -28,6 +28,8 @@ interface RetentionClient {
   total_deposit: number;
   balance: number;
   credit: number;
+  sales_client_potential: string | null;
+  age: number | null;
 }
 
 interface Filters {
@@ -326,6 +328,8 @@ export function RetentionPage() {
             <thead className="bg-gray-50 sticky top-0">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('client_qualification_date')}>Qual. Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('days_in_retention')}>Days in Ret. <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('trade_count')}>Trades <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
@@ -342,15 +346,17 @@ export function RetentionPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={15} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={15} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium">
                       <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
                     </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>

@@ -34,6 +34,8 @@ _SORT_COLS = {
     "total_deposit": "m.total_deposit",
     "balance": "m.total_balance",
     "credit": "m.total_credit",
+    "sales_client_potential": "m.sales_client_potential",
+    "age": "EXTRACT(year FROM AGE(m.birth_date))",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -188,7 +190,10 @@ async def get_retention_clients(
                     m.deposit_count,
                     m.total_deposit,
                     m.total_balance AS balance,
-                    m.total_credit AS credit
+                    m.total_credit AS credit,
+                    m.sales_client_potential,
+                    CASE WHEN m.birth_date IS NOT NULL
+                         THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
                 FROM retention_mv m
                 WHERE {where_clause}
                 ORDER BY {sort_col} {direction}
@@ -217,6 +222,8 @@ async def get_retention_clients(
                     "total_deposit": float(r["total_deposit"]),
                     "balance": float(r["balance"]),
                     "credit": float(r["credit"]),
+                    "sales_client_potential": r["sales_client_potential"],
+                    "age": int(r["age"]) if r["age"] is not None else None,
                 }
                 for r in rows
             ],

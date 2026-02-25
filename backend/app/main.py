@@ -13,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, refresh_retention_mv, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, refresh_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -39,6 +39,13 @@ async def lifespan(app: FastAPI):
             _text("UPDATE etl_sync_log SET status='error', error_message='Interrupted by restart' WHERE status='running'")
         )
         await session.commit()
+    # Add new ant_acc columns if not yet present (safe ADD COLUMN IF NOT EXISTS)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE ant_acc ADD COLUMN IF NOT EXISTS is_test_account SMALLINT"))
+        await session.execute(_text("ALTER TABLE ant_acc ADD COLUMN IF NOT EXISTS sales_client_potential VARCHAR(100)"))
+        await session.execute(_text("ALTER TABLE ant_acc ADD COLUMN IF NOT EXISTS birth_date DATE"))
+        await session.commit()
+    logger.info("ant_acc column migrations applied")
     # Create performance indexes if missing (covers existing deployments)
     async with AsyncSessionLocal() as session:
         # Covering index for retention query: filters on (login, cmd, symbol), reads notional_value, open_time, close_time
@@ -75,6 +82,7 @@ async def lifespan(app: FastAPI):
                 INNER JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = a.accountid
                 WHERE a.client_qualification_date IS NOT NULL
                   AND a.client_qualification_date >= '2024-01-01'
+                  AND (a.is_test_account IS NULL OR a.is_test_account = 0)
             ),
             trades_agg AS (
                 SELECT
@@ -113,6 +121,8 @@ async def lifespan(app: FastAPI):
             SELECT
                 a.accountid,
                 a.client_qualification_date,
+                a.sales_client_potential,
+                a.birth_date,
                 ta.trade_count,
                 ta.total_profit,
                 ta.last_trade_date,
@@ -127,6 +137,7 @@ async def lifespan(app: FastAPI):
             INNER JOIN deposits_agg da ON da.accountid = a.accountid
             INNER JOIN balance_agg ab ON ab.accountid = a.accountid
             WHERE a.client_qualification_date IS NOT NULL
+              AND (a.is_test_account IS NULL OR a.is_test_account = 0)
             WITH NO DATA
         """))
         await session.commit()
@@ -176,6 +187,12 @@ async def lifespan(app: FastAPI):
     if _ReplicaSession is not None:
         scheduler.add_job(
             incremental_sync_trades,
+            "interval",
+            minutes=30,
+            args=[AsyncSessionLocal, _ReplicaSession],
+        )
+        scheduler.add_job(
+            incremental_sync_dealio_users,
             "interval",
             minutes=30,
             args=[AsyncSessionLocal, _ReplicaSession],

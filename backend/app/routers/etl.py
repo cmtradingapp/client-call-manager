@@ -31,17 +31,27 @@ _TRADES_UPSERT = (
     " last_modified = EXCLUDED.last_modified"
 )
 
-_ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime FROM report.ant_acc"
+_ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date FROM report.ant_acc"
 
 _ANT_ACC_UPSERT = (
-    "INSERT INTO ant_acc (accountid, client_qualification_date, modifiedtime)"
-    " VALUES (:accountid, :client_qualification_date, :modifiedtime)"
+    "INSERT INTO ant_acc (accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date)"
+    " VALUES (:accountid, :client_qualification_date, :modifiedtime, :is_test_account, :sales_client_potential, :birth_date)"
     " ON CONFLICT (accountid) DO UPDATE SET"
     " client_qualification_date = EXCLUDED.client_qualification_date,"
-    " modifiedtime = EXCLUDED.modifiedtime"
+    " modifiedtime = EXCLUDED.modifiedtime,"
+    " is_test_account = EXCLUDED.is_test_account,"
+    " sales_client_potential = EXCLUDED.sales_client_potential,"
+    " birth_date = EXCLUDED.birth_date"
 )
 
-_ant_acc_map = lambda r: {"accountid": str(r["accountid"]), "client_qualification_date": r["client_qualification_date"], "modifiedtime": r["modifiedtime"]}  # noqa: E731
+_ant_acc_map = lambda r: {  # noqa: E731
+    "accountid": str(r["accountid"]),
+    "client_qualification_date": r["client_qualification_date"],
+    "modifiedtime": r["modifiedtime"],
+    "is_test_account": r["is_test_account"],
+    "sales_client_potential": r["sales_client_potential"],
+    "birth_date": r["birth_date"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +445,212 @@ async def incremental_sync_mtt(session_factory: async_sessionmaker) -> None:
 
 
 # ---------------------------------------------------------------------------
+# dealio.users — full + incremental sync
+# ---------------------------------------------------------------------------
+
+_DEALIO_USERS_SELECT = (
+    "SELECT login, lastupdate, sourceid, sourcename, sourcetype, groupname, groupcurrency,"
+    " userid, actualuserid, regdate, lastdate, agentaccount, lastip::text AS lastip,"
+    " balance, prevmonthbalance, prevbalance, prevequity, credit, name, country, city,"
+    " state, zipcode, address, phone, email, compbalance, compprevbalance,"
+    " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
+    " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits"
+    " FROM dealio.users"
+)
+
+_DEALIO_USERS_UPSERT = (
+    "INSERT INTO dealio_users"
+    " (login, lastupdate, sourceid, sourcename, sourcetype, groupname, groupcurrency,"
+    " userid, actualuserid, regdate, lastdate, agentaccount, lastip,"
+    " balance, prevmonthbalance, prevbalance, prevequity, credit, name, country, city,"
+    " state, zipcode, address, phone, email, compbalance, compprevbalance,"
+    " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
+    " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits)"
+    " VALUES"
+    " (:login, :lastupdate, :sourceid, :sourcename, :sourcetype, :groupname, :groupcurrency,"
+    " :userid, :actualuserid, :regdate, :lastdate, :agentaccount, :lastip,"
+    " :balance, :prevmonthbalance, :prevbalance, :prevequity, :credit, :name, :country, :city,"
+    " :state, :zipcode, :address, :phone, :email, :compbalance, :compprevbalance,"
+    " :compprevmonthbalance, :compprevequity, :compcredit, :conversionratio, :book,"
+    " :isenabled, :status, :prevmonthequity, :compprevmonthequity, :comment, :color,"
+    " :leverage, :condition, :calculationcurrency, :calculationcurrencydigits)"
+    " ON CONFLICT (login) DO UPDATE SET"
+    " lastupdate = EXCLUDED.lastupdate, sourceid = EXCLUDED.sourceid, sourcename = EXCLUDED.sourcename,"
+    " sourcetype = EXCLUDED.sourcetype, groupname = EXCLUDED.groupname, groupcurrency = EXCLUDED.groupcurrency,"
+    " userid = EXCLUDED.userid, actualuserid = EXCLUDED.actualuserid, regdate = EXCLUDED.regdate,"
+    " lastdate = EXCLUDED.lastdate, agentaccount = EXCLUDED.agentaccount, lastip = EXCLUDED.lastip,"
+    " balance = EXCLUDED.balance, prevmonthbalance = EXCLUDED.prevmonthbalance, prevbalance = EXCLUDED.prevbalance,"
+    " prevequity = EXCLUDED.prevequity, credit = EXCLUDED.credit, name = EXCLUDED.name,"
+    " country = EXCLUDED.country, city = EXCLUDED.city, state = EXCLUDED.state,"
+    " zipcode = EXCLUDED.zipcode, address = EXCLUDED.address, phone = EXCLUDED.phone,"
+    " email = EXCLUDED.email, compbalance = EXCLUDED.compbalance, compprevbalance = EXCLUDED.compprevbalance,"
+    " compprevmonthbalance = EXCLUDED.compprevmonthbalance, compprevequity = EXCLUDED.compprevequity,"
+    " compcredit = EXCLUDED.compcredit, conversionratio = EXCLUDED.conversionratio, book = EXCLUDED.book,"
+    " isenabled = EXCLUDED.isenabled, status = EXCLUDED.status, prevmonthequity = EXCLUDED.prevmonthequity,"
+    " compprevmonthequity = EXCLUDED.compprevmonthequity, comment = EXCLUDED.comment, color = EXCLUDED.color,"
+    " leverage = EXCLUDED.leverage, condition = EXCLUDED.condition, calculationcurrency = EXCLUDED.calculationcurrency,"
+    " calculationcurrencydigits = EXCLUDED.calculationcurrencydigits"
+)
+
+_dealio_users_map = lambda r: {  # noqa: E731
+    "login": r["login"], "lastupdate": r["lastupdate"], "sourceid": r["sourceid"],
+    "sourcename": r["sourcename"], "sourcetype": r["sourcetype"], "groupname": r["groupname"],
+    "groupcurrency": r["groupcurrency"], "userid": r["userid"], "actualuserid": r["actualuserid"],
+    "regdate": r["regdate"], "lastdate": r["lastdate"], "agentaccount": r["agentaccount"],
+    "lastip": r["lastip"], "balance": r["balance"], "prevmonthbalance": r["prevmonthbalance"],
+    "prevbalance": r["prevbalance"], "prevequity": r["prevequity"], "credit": r["credit"],
+    "name": r["name"], "country": r["country"], "city": r["city"], "state": r["state"],
+    "zipcode": r["zipcode"], "address": r["address"], "phone": r["phone"], "email": r["email"],
+    "compbalance": r["compbalance"], "compprevbalance": r["compprevbalance"],
+    "compprevmonthbalance": r["compprevmonthbalance"], "compprevequity": r["compprevequity"],
+    "compcredit": r["compcredit"], "conversionratio": r["conversionratio"], "book": r["book"],
+    "isenabled": r["isenabled"], "status": r["status"], "prevmonthequity": r["prevmonthequity"],
+    "compprevmonthequity": r["compprevmonthequity"], "comment": r["comment"], "color": r["color"],
+    "leverage": r["leverage"], "condition": r["condition"], "calculationcurrency": r["calculationcurrency"],
+    "calculationcurrencydigits": r["calculationcurrencydigits"],
+}
+
+_DEALIO_USERS_BATCH = 50_000
+
+
+async def _run_full_sync_dealio_users(log_id: int) -> None:
+    from app.replica_database import _ReplicaSession
+
+    if _ReplicaSession is None:
+        await _update_log(log_id, "error", error="Replica database not configured")
+        return
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("TRUNCATE TABLE dealio_users"))
+            await db.commit()
+
+        total = 0
+        cursor = 0
+
+        while True:
+            rows = None
+            for attempt in range(5):
+                try:
+                    async with _ReplicaSession() as replica_db:
+                        result = await replica_db.execute(
+                            text(f"{_DEALIO_USERS_SELECT} WHERE login > :cursor ORDER BY login LIMIT :limit"),
+                            {"cursor": cursor, "limit": _DEALIO_USERS_BATCH},
+                        )
+                        rows = result.mappings().fetchall()
+                    break
+                except Exception as e:
+                    if attempt == 4:
+                        raise
+                    wait = 2 ** attempt
+                    logger.warning("ETL dealio_users full: attempt %d failed (%s), retrying in %ds", attempt + 1, e, wait)
+                    await asyncio.sleep(wait)
+
+            if not rows:
+                break
+
+            async with AsyncSessionLocal() as db:
+                await db.execute(text(_DEALIO_USERS_UPSERT), [_dealio_users_map(r) for r in rows])
+                await db.commit()
+
+            total += len(rows)
+            cursor = rows[-1]["login"]
+            logger.info("ETL dealio_users full: %d rows (cursor=%d)", total, cursor)
+
+            if len(rows) < _DEALIO_USERS_BATCH:
+                break
+
+        await _update_log(log_id, "completed", rows_synced=total)
+        logger.info("ETL dealio_users full sync complete: %d rows", total)
+
+    except Exception as e:
+        logger.error("ETL dealio_users full sync failed: %s", e)
+        await _update_log(log_id, "error", error=str(e))
+
+
+async def incremental_sync_dealio_users(
+    session_factory: async_sessionmaker,
+    replica_session_factory: async_sessionmaker,
+) -> None:
+    if await _is_running("dealio_users"):
+        logger.info("ETL dealio_users: skipping scheduled run — sync already in progress")
+        return
+    log_id: int | None = None
+    try:
+        async with session_factory() as db:
+            log = EtlSyncLog(sync_type="dealio_users_incremental", status="running")
+            db.add(log)
+            await db.commit()
+            await db.refresh(log)
+            log_id = log.id
+
+        # lastupdate is timestamp with time zone — timezone-aware cutoff works directly
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=3)
+        total = 0
+        offset = 0
+
+        while True:
+            rows = None
+            for attempt in range(3):
+                try:
+                    async with replica_session_factory() as replica_db:
+                        result = await replica_db.execute(
+                            text(
+                                f"{_DEALIO_USERS_SELECT}"
+                                " WHERE lastupdate > :cutoff ORDER BY lastupdate, login LIMIT :limit OFFSET :offset"
+                            ),
+                            {"cutoff": cutoff, "limit": _DEALIO_USERS_BATCH, "offset": offset},
+                        )
+                        rows = result.mappings().fetchall()
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        raise
+                    logger.warning("ETL dealio_users: connection error on attempt %d, retrying: %s", attempt + 1, e)
+                    await asyncio.sleep(2)
+
+            if not rows:
+                break
+
+            async with session_factory() as db:
+                await db.execute(text(_DEALIO_USERS_UPSERT), [_dealio_users_map(r) for r in rows])
+                await db.commit()
+
+            total += len(rows)
+            offset += len(rows)
+
+            if len(rows) < _DEALIO_USERS_BATCH:
+                break
+
+        async with session_factory() as db:
+            log = await db.get(EtlSyncLog, log_id)
+            if log:
+                log.status = "completed"
+                log.rows_synced = total
+                log.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+
+        if total:
+            logger.info("ETL dealio_users incremental: %d new/updated rows", total)
+
+    except Exception as e:
+        logger.error("ETL dealio_users incremental failed: %s", e)
+        if log_id:
+            try:
+                async with session_factory() as db:
+                    log = await db.get(EtlSyncLog, log_id)
+                    if log:
+                        log.status = "error"
+                        log.error_message = str(e)
+                        log.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Daily midnight full sync — all tables
 # ---------------------------------------------------------------------------
 
@@ -479,6 +695,14 @@ async def daily_full_sync_all() -> None:
         await _run_full_sync_mtt(log_id)
     else:
         logger.info("Daily sync: mtt already running, skipped")
+
+    # dealio_users (only if replica is available)
+    if _ReplicaSession is not None:
+        if not await _is_running("dealio_users"):
+            log_id = await _create_log("dealio_users_full")
+            await _run_full_sync_dealio_users(log_id)
+        else:
+            logger.info("Daily sync: dealio_users already running, skipped")
 
     logger.info("Daily full sync complete")
     await refresh_retention_mv()
@@ -571,6 +795,22 @@ async def sync_vta(
     return {"status": "started", "log_id": log.id}
 
 
+@router.post("/etl/sync-dealio-users")
+async def sync_dealio_users(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("dealio_users"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="dealio_users_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_dealio_users, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
 @router.post("/etl/sync-mtt")
 async def sync_mtt(
     background_tasks: BackgroundTasks,
@@ -601,6 +841,7 @@ async def sync_status(
     ant_acc_count = (await db.execute(text("SELECT COUNT(*) FROM ant_acc"))).scalar() or 0
     vta_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_trading_accounts"))).scalar() or 0
     mtt_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_mttransactions"))).scalar() or 0
+    dealio_users_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_users"))).scalar() or 0
 
     def _last_row(row) -> dict | None:
         if row is None:
@@ -611,16 +852,19 @@ async def sync_status(
     ant_acc_last = _last_row((await db.execute(text("SELECT accountid, modifiedtime FROM ant_acc WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    dealio_users_last = _last_row((await db.execute(text("SELECT login, lastupdate FROM dealio_users WHERE lastupdate <= NOW() ORDER BY lastupdate DESC NULLS LAST LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,
         "ant_acc_row_count": ant_acc_count,
         "vta_row_count": vta_count,
         "mtt_row_count": mtt_count,
+        "dealio_users_row_count": dealio_users_count,
         "trades_last": trades_last,
         "ant_acc_last": ant_acc_last,
         "vta_last": vta_last,
         "mtt_last": mtt_last,
+        "dealio_users_last": dealio_users_last,
         "logs": [
             {
                 "id": r["id"],
