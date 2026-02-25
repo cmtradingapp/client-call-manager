@@ -426,7 +426,7 @@ _DEALIO_USERS_SELECT = (
     " state, zipcode, address, phone, email, compbalance, compprevbalance,"
     " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
     " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
-    " leverage, condition, calculationcurrency, calculationcurrencydigits"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits, equity"
     " FROM dealio.users"
 )
 
@@ -438,7 +438,7 @@ _DEALIO_USERS_UPSERT = (
     " state, zipcode, address, phone, email, compbalance, compprevbalance,"
     " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
     " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
-    " leverage, condition, calculationcurrency, calculationcurrencydigits)"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits, equity)"
     " VALUES"
     " (:login, :lastupdate, :sourceid, :sourcename, :sourcetype, :groupname, :groupcurrency,"
     " :userid, :actualuserid, :regdate, :lastdate, :agentaccount, :lastip,"
@@ -446,7 +446,7 @@ _DEALIO_USERS_UPSERT = (
     " :state, :zipcode, :address, :phone, :email, :compbalance, :compprevbalance,"
     " :compprevmonthbalance, :compprevequity, :compcredit, :conversionratio, :book,"
     " :isenabled, :status, :prevmonthequity, :compprevmonthequity, :comment, :color,"
-    " :leverage, :condition, :calculationcurrency, :calculationcurrencydigits)"
+    " :leverage, :condition, :calculationcurrency, :calculationcurrencydigits, :equity)"
     " ON CONFLICT (login) DO UPDATE SET"
     " lastupdate = EXCLUDED.lastupdate, sourceid = EXCLUDED.sourceid, sourcename = EXCLUDED.sourcename,"
     " sourcetype = EXCLUDED.sourcetype, groupname = EXCLUDED.groupname, groupcurrency = EXCLUDED.groupcurrency,"
@@ -462,7 +462,7 @@ _DEALIO_USERS_UPSERT = (
     " isenabled = EXCLUDED.isenabled, status = EXCLUDED.status, prevmonthequity = EXCLUDED.prevmonthequity,"
     " compprevmonthequity = EXCLUDED.compprevmonthequity, comment = EXCLUDED.comment, color = EXCLUDED.color,"
     " leverage = EXCLUDED.leverage, condition = EXCLUDED.condition, calculationcurrency = EXCLUDED.calculationcurrency,"
-    " calculationcurrencydigits = EXCLUDED.calculationcurrencydigits"
+    " calculationcurrencydigits = EXCLUDED.calculationcurrencydigits, equity = EXCLUDED.equity"
 )
 
 _dealio_users_map = lambda r: {  # noqa: E731
@@ -480,7 +480,7 @@ _dealio_users_map = lambda r: {  # noqa: E731
     "isenabled": r["isenabled"], "status": r["status"], "prevmonthequity": r["prevmonthequity"],
     "compprevmonthequity": r["compprevmonthequity"], "comment": r["comment"], "color": r["color"],
     "leverage": r["leverage"], "condition": r["condition"], "calculationcurrency": r["calculationcurrency"],
-    "calculationcurrencydigits": r["calculationcurrencydigits"],
+    "calculationcurrencydigits": r["calculationcurrencydigits"], "equity": r["equity"],
 }
 
 _DEALIO_USERS_BATCH = 50_000
@@ -679,8 +679,412 @@ async def daily_full_sync_all() -> None:
         else:
             logger.info("Daily sync: dealio_users already running, skipped")
 
+    # dealio_positions (only if replica is available) — full refresh
+    if _ReplicaSession is not None:
+        if not await _is_running("positions"):
+            log_id = await _create_log("positions_full")
+            await _run_full_sync_positions(log_id)
+        else:
+            logger.info("Daily sync: positions already running, skipped")
+
+    # vtiger_users
+    if not await _is_running("vtiger_users"):
+        log_id = await _create_log("vtiger_users_full")
+        await _run_full_sync_vtiger_users(log_id)
+    else:
+        logger.info("Daily sync: vtiger_users already running, skipped")
+
+    # vtiger_campaigns
+    if not await _is_running("vtiger_campaigns"):
+        log_id = await _create_log("vtiger_campaigns_full")
+        await _run_full_sync_vtiger_campaigns(log_id)
+    else:
+        logger.info("Daily sync: vtiger_campaigns already running, skipped")
+
     logger.info("Daily full sync complete")
     await refresh_retention_mv()
+
+
+# ---------------------------------------------------------------------------
+# dealio.positions — full sync (open positions, always full-refresh)
+# ---------------------------------------------------------------------------
+
+_POSITIONS_BATCH = 100_000
+
+_POSITIONS_UPSERT = (
+    "INSERT INTO dealio_positions (positionid, login, computedprofit)"
+    " VALUES (:positionid, :login, :computedprofit)"
+    " ON CONFLICT (positionid) DO UPDATE SET"
+    " login = EXCLUDED.login, computedprofit = EXCLUDED.computedprofit"
+)
+
+
+async def _run_full_sync_positions(log_id: int) -> None:
+    from app.replica_database import _ReplicaSession
+
+    if _ReplicaSession is None:
+        await _update_log(log_id, "error", error="Replica database not configured")
+        return
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("TRUNCATE TABLE dealio_positions"))
+            await db.commit()
+
+        total = 0
+        cursor = 0
+
+        while True:
+            rows = None
+            for attempt in range(5):
+                try:
+                    async with _ReplicaSession() as replica_db:
+                        result = await replica_db.execute(
+                            text(
+                                "SELECT positionid, login, computedprofit FROM dealio.positions"
+                                " WHERE positionid > :cursor ORDER BY positionid LIMIT :limit"
+                            ),
+                            {"cursor": cursor, "limit": _POSITIONS_BATCH},
+                        )
+                        rows = result.fetchall()
+                    break
+                except Exception as e:
+                    if attempt == 4:
+                        raise
+                    wait = 2 ** attempt
+                    logger.warning("ETL positions full: attempt %d failed (%s), retrying in %ds", attempt + 1, e, wait)
+                    await asyncio.sleep(wait)
+
+            if not rows:
+                break
+
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text(_POSITIONS_UPSERT),
+                    [{"positionid": r[0], "login": r[1], "computedprofit": r[2]} for r in rows],
+                )
+                await db.commit()
+
+            total += len(rows)
+            cursor = rows[-1][0]
+            logger.info("ETL positions full: %d rows (cursor=%d)", total, cursor)
+
+            if len(rows) < _POSITIONS_BATCH:
+                break
+
+        await _update_log(log_id, "completed", rows_synced=total)
+        logger.info("ETL positions full sync complete: %d rows", total)
+
+    except Exception as e:
+        logger.error("ETL positions full sync failed: %s", e)
+        await _update_log(log_id, "error", error=str(e))
+
+
+async def sync_positions_job() -> None:
+    """Scheduled full refresh of dealio.positions (open positions change constantly)."""
+    if await _is_running("positions"):
+        return
+    log_id = await _create_log("positions_full")
+    await _run_full_sync_positions(log_id)
+
+
+# ---------------------------------------------------------------------------
+# vtiger_users (report.vtiger_users)
+# ---------------------------------------------------------------------------
+
+_VTIGER_USERS_SELECT = (
+    "SELECT userid, user_name, first_name, last_name, email1, title, department,"
+    " phone_work, status, is_admin, roleid, user_type, description, reports_to_id,"
+    " modifiedtime, date_entered, deleted"
+    " FROM report.vtiger_users"
+)
+
+_VTIGER_USERS_UPSERT = (
+    "INSERT INTO vtiger_users"
+    " (userid, user_name, first_name, last_name, email1, title, department,"
+    " phone_work, status, is_admin, roleid, user_type, description, reports_to_id,"
+    " modifiedtime, date_entered, deleted)"
+    " VALUES"
+    " (:userid, :user_name, :first_name, :last_name, :email1, :title, :department,"
+    " :phone_work, :status, :is_admin, :roleid, :user_type, :description, :reports_to_id,"
+    " :modifiedtime, :date_entered, :deleted)"
+    " ON CONFLICT (userid) DO UPDATE SET"
+    " user_name = EXCLUDED.user_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name,"
+    " email1 = EXCLUDED.email1, title = EXCLUDED.title, department = EXCLUDED.department,"
+    " phone_work = EXCLUDED.phone_work, status = EXCLUDED.status, is_admin = EXCLUDED.is_admin,"
+    " roleid = EXCLUDED.roleid, user_type = EXCLUDED.user_type, description = EXCLUDED.description,"
+    " reports_to_id = EXCLUDED.reports_to_id, modifiedtime = EXCLUDED.modifiedtime,"
+    " date_entered = EXCLUDED.date_entered, deleted = EXCLUDED.deleted"
+)
+
+_vtiger_users_map = lambda r: {  # noqa: E731
+    "userid": str(r["userid"]) if r["userid"] is not None else None,
+    "user_name": r["user_name"], "first_name": r["first_name"], "last_name": r["last_name"],
+    "email1": r["email1"], "title": r["title"], "department": r["department"],
+    "phone_work": r["phone_work"], "status": r["status"], "is_admin": r["is_admin"],
+    "roleid": str(r["roleid"]) if r["roleid"] is not None else None,
+    "user_type": r["user_type"], "description": r["description"],
+    "reports_to_id": str(r["reports_to_id"]) if r["reports_to_id"] is not None else None,
+    "modifiedtime": r["modifiedtime"], "date_entered": r["date_entered"],
+    "deleted": r["deleted"],
+}
+
+
+async def _run_full_sync_vtiger_users(log_id: int) -> None:
+    await _mssql_full_sync(log_id, "vtiger_users_full", _VTIGER_USERS_SELECT, "vtiger_users", _VTIGER_USERS_UPSERT, _vtiger_users_map)
+
+
+async def incremental_sync_vtiger_users(session_factory: async_sessionmaker) -> None:
+    if await _is_running("vtiger_users"):
+        logger.info("ETL vtiger_users: skipping scheduled run — sync already in progress")
+        return
+    await _mssql_incremental_sync(session_factory, "vtiger_users_incremental", "vtiger_users", _VTIGER_USERS_SELECT, _VTIGER_USERS_UPSERT, _vtiger_users_map, lookback_hours=3)
+
+
+# ---------------------------------------------------------------------------
+# vtiger_campaigns (report.vtiger_campaigns)
+# ---------------------------------------------------------------------------
+
+_VTIGER_CAMPAIGNS_SELECT = (
+    "SELECT campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
+    " campaignstatus, budget, actual_cost, expected_revenue, targetsize, currency_id,"
+    " assigned_user_id, modifiedtime, date_entered, deleted"
+    " FROM report.vtiger_campaigns"
+)
+
+_VTIGER_CAMPAIGNS_UPSERT = (
+    "INSERT INTO vtiger_campaigns"
+    " (campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
+    " campaignstatus, budget, actual_cost, expected_revenue, targetsize, currency_id,"
+    " assigned_user_id, modifiedtime, date_entered, deleted)"
+    " VALUES"
+    " (:campaignid, :campaignname, :campaigntype, :start_date, :end_date, :closingdate,"
+    " :campaignstatus, :budget, :actual_cost, :expected_revenue, :targetsize, :currency_id,"
+    " :assigned_user_id, :modifiedtime, :date_entered, :deleted)"
+    " ON CONFLICT (campaignid) DO UPDATE SET"
+    " campaignname = EXCLUDED.campaignname, campaigntype = EXCLUDED.campaigntype,"
+    " start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,"
+    " closingdate = EXCLUDED.closingdate, campaignstatus = EXCLUDED.campaignstatus,"
+    " budget = EXCLUDED.budget, actual_cost = EXCLUDED.actual_cost,"
+    " expected_revenue = EXCLUDED.expected_revenue, targetsize = EXCLUDED.targetsize,"
+    " currency_id = EXCLUDED.currency_id, assigned_user_id = EXCLUDED.assigned_user_id,"
+    " modifiedtime = EXCLUDED.modifiedtime, date_entered = EXCLUDED.date_entered, deleted = EXCLUDED.deleted"
+)
+
+_vtiger_campaigns_map = lambda r: {  # noqa: E731
+    "campaignid": str(r["campaignid"]) if r["campaignid"] is not None else None,
+    "campaignname": r["campaignname"], "campaigntype": r["campaigntype"],
+    "start_date": r["start_date"].date() if hasattr(r["start_date"], "date") else r["start_date"],
+    "end_date": r["end_date"].date() if hasattr(r["end_date"], "date") else r["end_date"],
+    "closingdate": r["closingdate"].date() if hasattr(r["closingdate"], "date") else r["closingdate"],
+    "campaignstatus": r["campaignstatus"],
+    "budget": r["budget"], "actual_cost": r["actual_cost"],
+    "expected_revenue": r["expected_revenue"],
+    "targetsize": r["targetsize"],
+    "currency_id": str(r["currency_id"]) if r["currency_id"] is not None else None,
+    "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] is not None else None,
+    "modifiedtime": r["modifiedtime"], "date_entered": r["date_entered"],
+    "deleted": r["deleted"],
+}
+
+
+async def _run_full_sync_vtiger_campaigns(log_id: int) -> None:
+    await _mssql_full_sync(log_id, "vtiger_campaigns_full", _VTIGER_CAMPAIGNS_SELECT, "vtiger_campaigns", _VTIGER_CAMPAIGNS_UPSERT, _vtiger_campaigns_map)
+
+
+async def incremental_sync_vtiger_campaigns(session_factory: async_sessionmaker) -> None:
+    if await _is_running("vtiger_campaigns"):
+        logger.info("ETL vtiger_campaigns: skipping scheduled run — sync already in progress")
+        return
+    await _mssql_incremental_sync(session_factory, "vtiger_campaigns_incremental", "vtiger_campaigns", _VTIGER_CAMPAIGNS_SELECT, _VTIGER_CAMPAIGNS_UPSERT, _vtiger_campaigns_map, lookback_hours=3)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic retention MV builder
+# ---------------------------------------------------------------------------
+
+def _build_mv_sql(extra_cols: list) -> str:
+    """Build the CREATE MATERIALIZED VIEW retention_mv SQL dynamically."""
+
+    dealio_extras = [c for c in extra_cols if c["source_table"] == "dealio_users"]
+    ant_acc_extras = [c for c in extra_cols if c["source_table"] == "ant_acc"]
+    trades_extras = [c for c in extra_cols if c["source_table"] == "trades_mt4"]
+    mtt_extras = [c for c in extra_cols if c["source_table"] == "vtiger_mttransactions"]
+    vta_extras = [c for c in extra_cols if c["source_table"] == "vtiger_trading_accounts"]
+
+    trades_agg_extras = ""
+    for c in trades_extras:
+        agg = c["agg_fn"]
+        col = c["source_column"]
+        trades_agg_extras += ",\n                    COALESCE(" + agg + "(t." + col + "), 0) AS " + col
+
+    deposits_agg_extras = ""
+    for c in mtt_extras:
+        agg = c["agg_fn"]
+        col = c["source_column"]
+        deposits_agg_extras += ",\n                    COALESCE(" + agg + "(mtt." + col + "), 0) AS " + col
+
+    balance_agg_extras = ""
+    for c in dealio_extras:
+        agg = c["agg_fn"]
+        col = c["source_column"]
+        balance_agg_extras += ",\n                    COALESCE(" + agg + "(du." + col + "), 0) AS " + col
+
+    vta_extras_cte = ""
+    vta_extras_join = ""
+    if vta_extras:
+        vta_select_parts = ["ql.accountid"]
+        for c in vta_extras:
+            agg = c["agg_fn"]
+            col = c["source_column"]
+            vta_select_parts.append("COALESCE(" + agg + "(vta." + col + "), 0) AS " + col)
+        vta_select_str = ",\n                    ".join(vta_select_parts)
+        vta_extras_cte = (
+            ",\nvta_extras_agg AS (\n"
+            "    SELECT\n"
+            "                    " + vta_select_str + "\n"
+            "    FROM qualifying_logins ql\n"
+            "    LEFT JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = ql.accountid\n"
+            "    GROUP BY ql.accountid\n"
+            ")"
+        )
+        vta_extras_join = "\n            INNER JOIN vta_extras_agg vea ON vea.accountid = a.accountid"
+
+    final_select_extras = ""
+    for c in trades_extras:
+        col = c["source_column"]
+        final_select_extras += ",\n                ta." + col
+    for c in mtt_extras:
+        col = c["source_column"]
+        final_select_extras += ",\n                da." + col
+    for c in dealio_extras:
+        col = c["source_column"]
+        final_select_extras += ",\n                ab." + col
+    for c in ant_acc_extras:
+        col = c["source_column"]
+        final_select_extras += ",\n                a." + col + " AS " + col
+    for c in vta_extras:
+        col = c["source_column"]
+        final_select_extras += ",\n                vea." + col
+
+    # Use chr(39) to embed SQL single quotes in the generated SQL
+    sq = chr(39)
+    sql = (
+        "CREATE MATERIALIZED VIEW retention_mv AS\n"
+        "            WITH qualifying_logins AS (\n"
+        "                SELECT vta.login, a.accountid\n"
+        "                FROM ant_acc a\n"
+        "                INNER JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = a.accountid\n"
+        "                WHERE a.client_qualification_date IS NOT NULL\n"
+        "                  AND a.client_qualification_date >= " + sq + "2024-01-01" + sq + "\n"
+        "                  AND (a.is_test_account IS NULL OR a.is_test_account = 0)\n"
+        "            ),\n"
+        "            trades_agg AS (\n"
+        "                SELECT\n"
+        "                    ql.accountid,\n"
+        "                    COUNT(t.ticket) AS trade_count,\n"
+        "                    COALESCE(SUM(t.computed_profit), 0) AS total_profit,\n"
+        "                    MAX(t.open_time) AS last_trade_date,\n"
+        "                    MAX(t.open_time) AS last_close_time" + trades_agg_extras + "\n"
+        "                FROM qualifying_logins ql\n"
+        "                LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)\n"
+        "                    AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN (" + sq + "inactivity" + sq + ", " + sq + "zeroingusd" + sq + ", " + sq + "spread" + sq + "))\n"
+        "                GROUP BY ql.accountid\n"
+        "            ),\n"
+        "            deposits_agg AS (\n"
+        "                SELECT\n"
+        "                    ql.accountid,\n"
+        "                    COUNT(mtt.mttransactionsid) AS deposit_count,\n"
+        "                    COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,\n"
+        "                    MAX(mtt.confirmation_time) AS last_deposit_time" + deposits_agg_extras + "\n"
+        "                FROM qualifying_logins ql\n"
+        "                LEFT JOIN vtiger_mttransactions mtt ON mtt.login = ql.login\n"
+        "                    AND mtt.transactionapproval = " + sq + "Approved" + sq + "\n"
+        "                    AND mtt.transactiontype = " + sq + "Deposit" + sq + "\n"
+        "                    AND (mtt.payment_method IS NULL OR mtt.payment_method != " + sq + "BonusProtectedPositionCashback" + sq + ")\n"
+        "                GROUP BY ql.accountid\n"
+        "            ),\n"
+        "            balance_agg AS (\n"
+        "                SELECT\n"
+        "                    ql.accountid,\n"
+        "                    COALESCE(SUM(du.balance), 0) AS total_balance,\n"
+        "                    COALESCE(SUM(du.credit), 0) AS total_credit,\n"
+        "                    COALESCE(SUM(du.equity), 0) AS total_equity,\n"
+        "                    COALESCE(SUM(dp.computedprofit), 0) AS open_pnl" + balance_agg_extras + "\n"
+        "                FROM qualifying_logins ql\n"
+        "                LEFT JOIN dealio_users du ON du.login = ql.login\n"
+        "                LEFT JOIN dealio_positions dp ON dp.login = ql.login\n"
+        "                GROUP BY ql.accountid\n"
+        "            )" + vta_extras_cte + "\n"
+        "            SELECT\n"
+        "                a.accountid,\n"
+        "                a.client_qualification_date,\n"
+        "                a.sales_client_potential,\n"
+        "                a.birth_date,\n"
+        "                ta.trade_count,\n"
+        "                ta.total_profit,\n"
+        "                ta.last_trade_date,\n"
+        "                ta.last_close_time,\n"
+        "                da.deposit_count,\n"
+        "                da.total_deposit,\n"
+        "                da.last_deposit_time,\n"
+        "                ab.total_balance,\n"
+        "                ab.total_credit,\n"
+        "                ab.total_equity,\n"
+        "                ab.open_pnl" + final_select_extras + "\n"
+        "            FROM ant_acc a\n"
+        "            INNER JOIN trades_agg ta ON ta.accountid = a.accountid\n"
+        "            INNER JOIN deposits_agg da ON da.accountid = a.accountid\n"
+        "            INNER JOIN balance_agg ab ON ab.accountid = a.accountid" + vta_extras_join + "\n"
+        "            WHERE a.client_qualification_date IS NOT NULL\n"
+        "              AND (a.is_test_account IS NULL OR a.is_test_account = 0)\n"
+        "            WITH NO DATA"
+    )
+
+    return sql
+
+
+async def rebuild_retention_mv() -> None:
+    """Rebuild retention_mv from scratch using current extra columns config."""
+    logger.info("rebuild_retention_mv: starting")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            text("SELECT source_table, source_column, agg_fn, display_name FROM retention_extra_columns ORDER BY id")
+        )
+        extra_cols = [
+            {"source_table": r[0], "source_column": r[1], "agg_fn": r[2], "display_name": r[3]}
+            for r in result.fetchall()
+        ]
+
+    mv_sql = _build_mv_sql(extra_cols)
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("DROP MATERIALIZED VIEW IF EXISTS retention_mv CASCADE"))
+        await db.commit()
+
+    logger.info("rebuild_retention_mv: dropped existing MV")
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(text(mv_sql))
+        await db.commit()
+
+    logger.info("rebuild_retention_mv: created new MV definition")
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("CREATE UNIQUE INDEX retention_mv_accountid ON retention_mv (accountid)"))
+        await db.commit()
+
+    logger.info("rebuild_retention_mv: unique index created")
+
+    # Refresh (non-concurrent since freshly created)
+    async with engine.connect() as conn:
+        await conn.execution_options(isolation_level="AUTOCOMMIT")
+        await conn.execute(text("SET work_mem = '256MB'"))
+        await conn.execute(text("REFRESH MATERIALIZED VIEW retention_mv"))
+
+    logger.info("rebuild_retention_mv: MV refreshed with data")
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -802,6 +1206,54 @@ async def sync_mtt(
     return {"status": "started", "log_id": log.id}
 
 
+@router.post("/etl/sync-positions")
+async def sync_positions(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("positions"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="positions_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_positions, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
+@router.post("/etl/sync-vtiger-users")
+async def sync_vtiger_users(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("vtiger_users"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="vtiger_users_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_vtiger_users, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
+@router.post("/etl/sync-vtiger-campaigns")
+async def sync_vtiger_campaigns(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("vtiger_campaigns"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="vtiger_campaigns_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_vtiger_campaigns, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
 @router.get("/etl/sync-status")
 async def sync_status(
     db: AsyncSession = Depends(get_db),
@@ -817,6 +1269,9 @@ async def sync_status(
     vta_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_trading_accounts"))).scalar() or 0
     mtt_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_mttransactions"))).scalar() or 0
     dealio_users_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_users"))).scalar() or 0
+    positions_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_positions"))).scalar() or 0
+    vtiger_users_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_users"))).scalar() or 0
+    vtiger_campaigns_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_campaigns"))).scalar() or 0
 
     def _last_row(row) -> dict | None:
         if row is None:
@@ -828,6 +1283,9 @@ async def sync_status(
     vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     dealio_users_last = _last_row((await db.execute(text("SELECT login, lastupdate FROM dealio_users WHERE lastupdate <= NOW() ORDER BY lastupdate DESC NULLS LAST LIMIT 1"))).first())
+    positions_last = _last_row((await db.execute(text("SELECT positionid, NULL FROM dealio_positions ORDER BY positionid DESC LIMIT 1"))).first())
+    vtiger_users_last = _last_row((await db.execute(text("SELECT userid, modifiedtime FROM vtiger_users WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    vtiger_campaigns_last = _last_row((await db.execute(text("SELECT campaignid, modifiedtime FROM vtiger_campaigns WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,
@@ -835,11 +1293,17 @@ async def sync_status(
         "vta_row_count": vta_count,
         "mtt_row_count": mtt_count,
         "dealio_users_row_count": dealio_users_count,
+        "positions_row_count": positions_count,
+        "vtiger_users_row_count": vtiger_users_count,
+        "vtiger_campaigns_row_count": vtiger_campaigns_count,
         "trades_last": trades_last,
         "ant_acc_last": ant_acc_last,
         "vta_last": vta_last,
         "mtt_last": mtt_last,
         "dealio_users_last": dealio_users_last,
+        "positions_last": positions_last,
+        "vtiger_users_last": vtiger_users_last,
+        "vtiger_campaigns_last": vtiger_campaigns_last,
         "logs": [
             {
                 "id": r["id"],

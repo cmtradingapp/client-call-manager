@@ -13,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, refresh_retention_mv, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, incremental_sync_vtiger_users, incremental_sync_vtiger_campaigns, sync_positions_job, refresh_retention_mv, rebuild_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
 from app.routers.auth import router as auth_router
@@ -68,86 +68,22 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("Performance indexes created/verified")
-    # Always recreate retention_mv with latest definition (WITH NO DATA = instant DDL, no lock contention)
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("DROP MATERIALIZED VIEW IF EXISTS retention_mv CASCADE"))
-        await session.commit()
-    logger.info("retention_mv dropped for recreation (if existed)")
-    async with AsyncSessionLocal() as session:
-        await session.execute(_text("""
-            CREATE MATERIALIZED VIEW retention_mv AS
-            WITH qualifying_logins AS (
-                SELECT vta.login, a.accountid
-                FROM ant_acc a
-                INNER JOIN vtiger_trading_accounts vta ON vta.vtigeraccountid = a.accountid
-                WHERE a.client_qualification_date IS NOT NULL
-                  AND a.client_qualification_date >= '2024-01-01'
-                  AND (a.is_test_account IS NULL OR a.is_test_account = 0)
-            ),
-            trades_agg AS (
-                SELECT
-                    ql.accountid,
-                    COUNT(t.ticket) AS trade_count,
-                    COALESCE(SUM(t.computed_profit), 0) AS total_profit,
-                    MAX(t.open_time) AS last_trade_date,
-                    MAX(t.open_time) AS last_close_time
-                FROM qualifying_logins ql
-                LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)
-                    AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN ('inactivity', 'zeroingusd', 'spread'))
-                GROUP BY ql.accountid
-            ),
-            deposits_agg AS (
-                SELECT
-                    ql.accountid,
-                    COUNT(mtt.mttransactionsid) AS deposit_count,
-                    COALESCE(SUM(mtt.usdamount), 0) AS total_deposit,
-                    MAX(mtt.confirmation_time) AS last_deposit_time
-                FROM qualifying_logins ql
-                LEFT JOIN vtiger_mttransactions mtt ON mtt.login = ql.login
-                    AND mtt.transactionapproval = 'Approved'
-                    AND mtt.transactiontype = 'Deposit'
-                    AND (mtt.payment_method IS NULL OR mtt.payment_method != 'BonusProtectedPositionCashback')
-                GROUP BY ql.accountid
-            ),
-            balance_agg AS (
-                SELECT
-                    ql.accountid,
-                    COALESCE(SUM(du.balance), 0) AS total_balance,
-                    COALESCE(SUM(du.credit), 0) AS total_credit
-                FROM qualifying_logins ql
-                LEFT JOIN dealio_users du ON du.login = ql.login
-                GROUP BY ql.accountid
-            )
-            SELECT
-                a.accountid,
-                a.client_qualification_date,
-                a.sales_client_potential,
-                a.birth_date,
-                ta.trade_count,
-                ta.total_profit,
-                ta.last_trade_date,
-                ta.last_close_time,
-                da.deposit_count,
-                da.total_deposit,
-                da.last_deposit_time,
-                ab.total_balance,
-                ab.total_credit
-            FROM ant_acc a
-            INNER JOIN trades_agg ta ON ta.accountid = a.accountid
-            INNER JOIN deposits_agg da ON da.accountid = a.accountid
-            INNER JOIN balance_agg ab ON ab.accountid = a.accountid
-            WHERE a.client_qualification_date IS NOT NULL
-              AND (a.is_test_account IS NULL OR a.is_test_account = 0)
-            WITH NO DATA
-        """))
-        await session.commit()
-    # Unique index is always created fresh (MV was just recreated)
+    # Migrate: ensure retention_extra_columns table exists
     async with AsyncSessionLocal() as session:
         await session.execute(_text(
-            "CREATE UNIQUE INDEX retention_mv_accountid ON retention_mv (accountid)"
+            "CREATE TABLE IF NOT EXISTS retention_extra_columns ("
+            "id SERIAL PRIMARY KEY, "
+            "display_name VARCHAR(128) NOT NULL, "
+            "source_table VARCHAR(64) NOT NULL, "
+            "source_column VARCHAR(128) NOT NULL, "
+            "agg_fn VARCHAR(16) NOT NULL DEFAULT 'SUM', "
+            "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
         ))
         await session.commit()
-    logger.info("retention_mv and unique index created/verified")
+    logger.info("retention_extra_columns migration applied")
+    # Rebuild retention_mv using current extra columns config
+    await rebuild_retention_mv()
+    logger.info("retention_mv rebuilt with dynamic columns")
     # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
     try:
         from app.pg_database import engine as _pg_engine
@@ -169,6 +105,57 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE etl_sync_log ALTER COLUMN sync_type TYPE VARCHAR(50)"))
         await session.commit()
     logger.info("etl_sync_log.sync_type column widened to VARCHAR(50)")
+    # Add equity column to dealio_users if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE dealio_users ADD COLUMN IF NOT EXISTS equity FLOAT"))
+        await session.commit()
+    logger.info("dealio_users.equity column migration applied")
+    # Create dealio_positions table if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS dealio_positions ("
+            "positionid BIGINT PRIMARY KEY, "
+            "login BIGINT, "
+            "computedprofit FLOAT)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_dealio_positions_login ON dealio_positions (login)"
+        ))
+        await session.commit()
+    logger.info("dealio_positions table migration applied")
+    # Create vtiger_users table if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS vtiger_users ("
+            "userid VARCHAR(50) PRIMARY KEY, "
+            "user_name TEXT, first_name TEXT, last_name TEXT, email1 TEXT, "
+            "title TEXT, department TEXT, phone_work TEXT, status TEXT, "
+            "is_admin TEXT, roleid TEXT, user_type TEXT, description TEXT, "
+            "reports_to_id TEXT, modifiedtime TIMESTAMP, date_entered TIMESTAMP, "
+            "deleted SMALLINT)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_vtiger_users_modifiedtime ON vtiger_users (modifiedtime)"
+        ))
+        await session.commit()
+    logger.info("vtiger_users table migration applied")
+    # Create vtiger_campaigns table if missing
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS vtiger_campaigns ("
+            "campaignid VARCHAR(50) PRIMARY KEY, "
+            "campaignname TEXT, campaigntype TEXT, "
+            "start_date DATE, end_date DATE, closingdate DATE, "
+            "campaignstatus TEXT, budget FLOAT, actual_cost FLOAT, "
+            "expected_revenue FLOAT, targetsize INTEGER, "
+            "currency_id VARCHAR(50), assigned_user_id VARCHAR(50), "
+            "modifiedtime TIMESTAMP, date_entered TIMESTAMP, deleted SMALLINT)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_vtiger_campaigns_modifiedtime ON vtiger_campaigns (modifiedtime)"
+        ))
+        await session.commit()
+    logger.info("vtiger_campaigns table migration applied")
     from app.replica_database import _ReplicaSession
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -205,6 +192,27 @@ async def lifespan(app: FastAPI):
             "interval",
             minutes=30,
             args=[AsyncSessionLocal, _ReplicaSession],
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+        )
+    scheduler.add_job(
+        incremental_sync_vtiger_users,
+        "interval",
+        minutes=30,
+        args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    scheduler.add_job(
+        incremental_sync_vtiger_campaigns,
+        "interval",
+        minutes=30,
+        args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    if _ReplicaSession is not None:
+        scheduler.add_job(
+            sync_positions_job,
+            "interval",
+            minutes=5,
             next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
         )
     scheduler.add_job(

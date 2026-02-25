@@ -49,6 +49,7 @@ class DealioUser(Base):
     condition = Column(Integer, nullable=True)
     calculationcurrency = Column(Text, nullable=True)
     calculationcurrencydigits = Column(Integer, nullable=True)
+    equity = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("ix_dealio_users_lastupdate", "lastupdate"),

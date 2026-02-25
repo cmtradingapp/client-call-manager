@@ -35,6 +35,8 @@ _SORT_COLS = {
     "total_deposit": "m.total_deposit",
     "balance": "m.total_balance",
     "credit": "m.total_credit",
+    "equity": "m.total_equity",
+    "open_pnl": "m.open_pnl",
     "sales_client_potential": "m.sales_client_potential",
     "age": "EXTRACT(year FROM AGE(m.birth_date))",
 }
@@ -85,7 +87,15 @@ async def get_retention_clients(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        sort_col = _SORT_COLS.get(sort_by, "m.accountid")
+        # Fetch configured extra columns
+        _ec_result = await db.execute(
+            text("SELECT source_column FROM retention_extra_columns ORDER BY id")
+        )
+        _extra_col_names = [r[0] for r in _ec_result.fetchall()]
+        _sort_cols_ext = dict(_SORT_COLS)
+        for _ecn in _extra_col_names:
+            _sort_cols_ext[_ecn] = "m." + _ecn
+        sort_col = _sort_cols_ext.get(sort_by, "m.accountid")
         direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
 
         where: list[str] = ["m.client_qualification_date IS NOT NULL"]
@@ -175,6 +185,11 @@ async def get_retention_clients(
         )
         total = count_result.scalar() or 0
 
+        _extra_sel = ""
+        if _extra_col_names:
+            _extra_sel = ",
+                    " + ",
+                    ".join("m." + c for c in _extra_col_names)
         rows_result = await db.execute(
             text(f"""
                 SELECT
@@ -192,6 +207,8 @@ async def get_retention_clients(
                     m.total_deposit,
                     m.total_balance AS balance,
                     m.total_credit AS credit,
+                    m.total_equity AS equity,
+                    m.open_pnl{_extra_sel},
                     m.sales_client_potential,
                     CASE WHEN m.birth_date IS NOT NULL
                          THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
@@ -223,8 +240,11 @@ async def get_retention_clients(
                     "total_deposit": float(r["total_deposit"]),
                     "balance": float(r["balance"]),
                     "credit": float(r["credit"]),
+                    "equity": float(r["equity"]),
+                    "open_pnl": float(r["open_pnl"]),
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
+                    **{col: r[col] for col in _extra_col_names},
                 }
                 for r in rows
             ],

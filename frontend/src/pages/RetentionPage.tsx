@@ -28,7 +28,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'sales_client_potential' | 'age';
+type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -46,6 +46,8 @@ interface RetentionClient {
   total_deposit: number;
   balance: number;
   credit: number;
+  equity: number;
+  open_pnl: number;
   sales_client_potential: string | null;
   age: number | null;
 }
@@ -389,15 +391,17 @@ export function RetentionPage() {
                 <th className={thClassRight} onClick={() => handleSort('total_deposit')}>Total Deposit <SortIcon col="total_deposit" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('balance')}>Balance <SortIcon col="balance" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('credit')}>Credit <SortIcon col="credit" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('equity')}>Equity <SortIcon col="equity" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('open_pnl')}>Open PNL <SortIcon col="open_pnl" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={15} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={17} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={15} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={17} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
@@ -418,6 +422,8 @@ export function RetentionPage() {
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.total_deposit)}</td>
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.balance)}</td>
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.credit)}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.equity)}</td>
+                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.open_pnl)}</td>
                     <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
                     <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
                   </tr>
