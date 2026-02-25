@@ -732,40 +732,26 @@ async def hourly_sync_vtiger_campaigns(session_factory: async_sessionmaker) -> N
 # ---------------------------------------------------------------------------
 
 _VTIGER_USERS_SELECT = (
-    "SELECT id AS userid, user_name, first_name, last_name, email1, title, department,"
-    " phone_work, status, is_admin, roleid, user_type, description, reports_to_id,"
-    " modifiedtime, date_entered, deleted"
+    "SELECT id, user_name, first_name, last_name, email, phone, department, status, office, position, fax"
     " FROM report.vtiger_users"
 )
 
 _VTIGER_USERS_UPSERT = (
     "INSERT INTO vtiger_users"
-    " (userid, user_name, first_name, last_name, email1, title, department,"
-    " phone_work, status, is_admin, roleid, user_type, description, reports_to_id,"
-    " modifiedtime, date_entered, deleted)"
+    " (id, user_name, first_name, last_name, email, phone, department, status, office, position, fax)"
     " VALUES"
-    " (:userid, :user_name, :first_name, :last_name, :email1, :title, :department,"
-    " :phone_work, :status, :is_admin, :roleid, :user_type, :description, :reports_to_id,"
-    " :modifiedtime, :date_entered, :deleted)"
-    " ON CONFLICT (userid) DO UPDATE SET"
+    " (:id, :user_name, :first_name, :last_name, :email, :phone, :department, :status, :office, :position, :fax)"
+    " ON CONFLICT (id) DO UPDATE SET"
     " user_name = EXCLUDED.user_name, first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name,"
-    " email1 = EXCLUDED.email1, title = EXCLUDED.title, department = EXCLUDED.department,"
-    " phone_work = EXCLUDED.phone_work, status = EXCLUDED.status, is_admin = EXCLUDED.is_admin,"
-    " roleid = EXCLUDED.roleid, user_type = EXCLUDED.user_type, description = EXCLUDED.description,"
-    " reports_to_id = EXCLUDED.reports_to_id, modifiedtime = EXCLUDED.modifiedtime,"
-    " date_entered = EXCLUDED.date_entered, deleted = EXCLUDED.deleted"
+    " email = EXCLUDED.email, phone = EXCLUDED.phone, department = EXCLUDED.department,"
+    " status = EXCLUDED.status, office = EXCLUDED.office, position = EXCLUDED.position, fax = EXCLUDED.fax"
 )
 
 _vtiger_users_map = lambda r: {  # noqa: E731
-    "userid": str(r["userid"]) if r["userid"] is not None else None,
+    "id": str(r["id"]) if r["id"] is not None else None,
     "user_name": r["user_name"], "first_name": r["first_name"], "last_name": r["last_name"],
-    "email1": r["email1"], "title": r["title"], "department": r["department"],
-    "phone_work": r["phone_work"], "status": r["status"], "is_admin": r["is_admin"],
-    "roleid": str(r["roleid"]) if r["roleid"] is not None else None,
-    "user_type": r["user_type"], "description": r["description"],
-    "reports_to_id": str(r["reports_to_id"]) if r["reports_to_id"] is not None else None,
-    "modifiedtime": r["modifiedtime"], "date_entered": r["date_entered"],
-    "deleted": r["deleted"],
+    "email": r["email"], "phone": r["phone"], "department": r["department"],
+    "status": r["status"], "office": r["office"], "position": r["position"], "fax": r["fax"],
 }
 
 
@@ -780,45 +766,28 @@ async def _run_full_sync_vtiger_users(log_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 _VTIGER_CAMPAIGNS_SELECT = (
-    "SELECT crmid AS campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
-    " campaignstatus, budget, actual_cost, expected_revenue, targetsize, currency_id,"
-    " assigned_user_id, modifiedtime, date_entered, deleted"
+    "SELECT crmid, campaign_id, campaign_name, campaign_legacy_id, campaign_channel, campaign_sub_channel"
     " FROM report.vtiger_campaigns"
 )
 
 _VTIGER_CAMPAIGNS_UPSERT = (
     "INSERT INTO vtiger_campaigns"
-    " (campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
-    " campaignstatus, budget, actual_cost, expected_revenue, targetsize, currency_id,"
-    " assigned_user_id, modifiedtime, date_entered, deleted)"
+    " (crmid, campaign_id, campaign_name, campaign_legacy_id, campaign_channel, campaign_sub_channel)"
     " VALUES"
-    " (:campaignid, :campaignname, :campaigntype, :start_date, :end_date, :closingdate,"
-    " :campaignstatus, :budget, :actual_cost, :expected_revenue, :targetsize, :currency_id,"
-    " :assigned_user_id, :modifiedtime, :date_entered, :deleted)"
-    " ON CONFLICT (campaignid) DO UPDATE SET"
-    " campaignname = EXCLUDED.campaignname, campaigntype = EXCLUDED.campaigntype,"
-    " start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,"
-    " closingdate = EXCLUDED.closingdate, campaignstatus = EXCLUDED.campaignstatus,"
-    " budget = EXCLUDED.budget, actual_cost = EXCLUDED.actual_cost,"
-    " expected_revenue = EXCLUDED.expected_revenue, targetsize = EXCLUDED.targetsize,"
-    " currency_id = EXCLUDED.currency_id, assigned_user_id = EXCLUDED.assigned_user_id,"
-    " modifiedtime = EXCLUDED.modifiedtime, date_entered = EXCLUDED.date_entered, deleted = EXCLUDED.deleted"
+    " (:crmid, :campaign_id, :campaign_name, :campaign_legacy_id, :campaign_channel, :campaign_sub_channel)"
+    " ON CONFLICT (crmid) DO UPDATE SET"
+    " campaign_id = EXCLUDED.campaign_id, campaign_name = EXCLUDED.campaign_name,"
+    " campaign_legacy_id = EXCLUDED.campaign_legacy_id, campaign_channel = EXCLUDED.campaign_channel,"
+    " campaign_sub_channel = EXCLUDED.campaign_sub_channel"
 )
 
 _vtiger_campaigns_map = lambda r: {  # noqa: E731
-    "campaignid": str(r["campaignid"]) if r["campaignid"] is not None else None,
-    "campaignname": r["campaignname"], "campaigntype": r["campaigntype"],
-    "start_date": r["start_date"].date() if hasattr(r["start_date"], "date") else r["start_date"],
-    "end_date": r["end_date"].date() if hasattr(r["end_date"], "date") else r["end_date"],
-    "closingdate": r["closingdate"].date() if hasattr(r["closingdate"], "date") else r["closingdate"],
-    "campaignstatus": r["campaignstatus"],
-    "budget": r["budget"], "actual_cost": r["actual_cost"],
-    "expected_revenue": r["expected_revenue"],
-    "targetsize": r["targetsize"],
-    "currency_id": str(r["currency_id"]) if r["currency_id"] is not None else None,
-    "assigned_user_id": str(r["assigned_user_id"]) if r["assigned_user_id"] is not None else None,
-    "modifiedtime": r["modifiedtime"], "date_entered": r["date_entered"],
-    "deleted": r["deleted"],
+    "crmid": str(r["crmid"]) if r["crmid"] is not None else None,
+    "campaign_id": str(r["campaign_id"]) if r["campaign_id"] is not None else None,
+    "campaign_name": r["campaign_name"],
+    "campaign_legacy_id": str(r["campaign_legacy_id"]) if r["campaign_legacy_id"] is not None else None,
+    "campaign_channel": r["campaign_channel"],
+    "campaign_sub_channel": r["campaign_sub_channel"],
 }
 
 
@@ -1192,8 +1161,8 @@ async def sync_status(
     vta_last = _last_row((await db.execute(text("SELECT login, modifiedtime FROM vtiger_trading_accounts WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     mtt_last = _last_row((await db.execute(text("SELECT mttransactionsid, modifiedtime FROM vtiger_mttransactions WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
     dealio_users_last = _last_row((await db.execute(text("SELECT login, lastupdate FROM dealio_users WHERE lastupdate <= NOW() ORDER BY lastupdate DESC NULLS LAST LIMIT 1"))).first())
-    vtiger_users_last = _last_row((await db.execute(text("SELECT userid, modifiedtime FROM vtiger_users WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
-    vtiger_campaigns_last = _last_row((await db.execute(text("SELECT campaignid, modifiedtime FROM vtiger_campaigns WHERE modifiedtime <= NOW() ORDER BY modifiedtime DESC NULLS LAST LIMIT 1"))).first())
+    vtiger_users_last = _last_row((await db.execute(text("SELECT id, NULL FROM vtiger_users LIMIT 1"))).first())
+    vtiger_campaigns_last = _last_row((await db.execute(text("SELECT crmid, NULL FROM vtiger_campaigns LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,

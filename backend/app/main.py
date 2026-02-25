@@ -91,39 +91,29 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE dealio_users ADD COLUMN IF NOT EXISTS equity FLOAT"))
         await session.commit()
     logger.info("dealio_users.equity column migration applied")
-    # Create vtiger_users table if missing
+    # Recreate vtiger_users with correct schema (drop old schema if columns changed)
     async with AsyncSessionLocal() as session:
+        await session.execute(_text("DROP TABLE IF EXISTS vtiger_users"))
         await session.execute(_text(
-            "CREATE TABLE IF NOT EXISTS vtiger_users ("
-            "userid VARCHAR(50) PRIMARY KEY, "
-            "user_name TEXT, first_name TEXT, last_name TEXT, email1 TEXT, "
-            "title TEXT, department TEXT, phone_work TEXT, status TEXT, "
-            "is_admin TEXT, roleid TEXT, user_type TEXT, description TEXT, "
-            "reports_to_id TEXT, modifiedtime TIMESTAMP, date_entered TIMESTAMP, "
-            "deleted SMALLINT)"
-        ))
-        await session.execute(_text(
-            "CREATE INDEX IF NOT EXISTS ix_vtiger_users_modifiedtime ON vtiger_users (modifiedtime)"
+            "CREATE TABLE vtiger_users ("
+            "id VARCHAR(50) PRIMARY KEY, "
+            "user_name TEXT, first_name TEXT, last_name TEXT, "
+            "email TEXT, phone TEXT, department TEXT, status TEXT, "
+            "office TEXT, position TEXT, fax TEXT)"
         ))
         await session.commit()
-    logger.info("vtiger_users table migration applied")
-    # Create vtiger_campaigns table if missing
+    logger.info("vtiger_users table recreated with correct schema")
+    # Recreate vtiger_campaigns with correct schema (drop old schema if columns changed)
     async with AsyncSessionLocal() as session:
+        await session.execute(_text("DROP TABLE IF EXISTS vtiger_campaigns"))
         await session.execute(_text(
-            "CREATE TABLE IF NOT EXISTS vtiger_campaigns ("
-            "campaignid VARCHAR(50) PRIMARY KEY, "
-            "campaignname TEXT, campaigntype TEXT, "
-            "start_date DATE, end_date DATE, closingdate DATE, "
-            "campaignstatus TEXT, budget FLOAT, actual_cost FLOAT, "
-            "expected_revenue FLOAT, targetsize INTEGER, "
-            "currency_id VARCHAR(50), assigned_user_id VARCHAR(50), "
-            "modifiedtime TIMESTAMP, date_entered TIMESTAMP, deleted SMALLINT)"
-        ))
-        await session.execute(_text(
-            "CREATE INDEX IF NOT EXISTS ix_vtiger_campaigns_modifiedtime ON vtiger_campaigns (modifiedtime)"
+            "CREATE TABLE vtiger_campaigns ("
+            "crmid VARCHAR(50) PRIMARY KEY, "
+            "campaign_id TEXT, campaign_name TEXT, "
+            "campaign_legacy_id TEXT, campaign_channel TEXT, campaign_sub_channel TEXT)"
         ))
         await session.commit()
-    logger.info("vtiger_campaigns table migration applied")
+    logger.info("vtiger_campaigns table recreated with correct schema")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")
