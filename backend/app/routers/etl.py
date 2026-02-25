@@ -545,7 +545,10 @@ async def incremental_sync_dealio_users(
     session_factory: async_sessionmaker,
     replica_session_factory: async_sessionmaker,
 ) -> None:
-    if await _is_running("dealio_users"):
+    logger.info("ETL dealio_users: incremental_sync_dealio_users called")
+    is_running = await _is_running("dealio_users")
+    logger.info("ETL dealio_users: _is_running=%s", is_running)
+    if is_running:
         logger.info("ETL dealio_users: skipping scheduled run — sync already in progress")
         return
     log_id: int | None = None
