@@ -9,6 +9,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+
+type DatePreset = '' | 'today' | 'yesterday' | 'last7' | 'this_month' | 'last_month' | 'this_year' | 'last_year' | 'custom';
+
+function getPresetDates(preset: DatePreset): { from: string; to: string } {
+  const today = new Date();
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  switch (preset) {
+    case 'today': return { from: fmt(today), to: fmt(today) };
+    case 'yesterday': { const d = new Date(today); d.setDate(d.getDate() - 1); return { from: fmt(d), to: fmt(d) }; }
+    case 'last7': { const d = new Date(today); d.setDate(d.getDate() - 6); return { from: fmt(d), to: fmt(today) }; }
+    case 'this_month': return { from: fmt(new Date(today.getFullYear(), today.getMonth(), 1)), to: fmt(today) };
+    case 'last_month': return { from: fmt(new Date(today.getFullYear(), today.getMonth() - 1, 1)), to: fmt(new Date(today.getFullYear(), today.getMonth(), 0)) };
+    case 'this_year': return { from: fmt(new Date(today.getFullYear(), 0, 1)), to: fmt(today) };
+    case 'last_year': return { from: fmt(new Date(today.getFullYear() - 1, 0, 1)), to: fmt(new Date(today.getFullYear() - 1, 11, 31)) };
+    default: return { from: '', to: ''  };
+  }
+}
+
 const PAGE_SIZE = 50;
 type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'sales_client_potential' | 'age';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
@@ -42,6 +60,7 @@ interface Filters {
   days_val: string;
   profit_op: NumOp;
   profit_val: string;
+  last_trade_preset: DatePreset;
   last_trade_from: string;
   last_trade_to: string;
   days_from_last_trade_op: NumOp;
@@ -68,6 +87,7 @@ const EMPTY_FILTERS: Filters = {
   days_val: '',
   profit_op: '',
   profit_val: '',
+  last_trade_preset: '',
   last_trade_from: '',
   last_trade_to: '',
   days_from_last_trade_op: '',
@@ -92,8 +112,7 @@ function countActive(f: Filters) {
     f.trade_count_op && f.trade_count_val,
     f.days_op && f.days_val,
     f.profit_op && f.profit_val,
-    f.last_trade_from,
-    f.last_trade_to,
+    f.last_trade_preset === 'custom' ? f.last_trade_from : f.last_trade_preset,
     f.days_from_last_trade_op && f.days_from_last_trade_val,
     f.deposit_count_op && f.deposit_count_val,
     f.total_deposit_op && f.total_deposit_val,
@@ -260,12 +279,42 @@ export function RetentionPage() {
               {/* Last Trade Date */}
               <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Last Trade Date</label>
-                <div className="flex items-center gap-2">
-                  <input type="date" value={draft.last_trade_from} onChange={(e) => setField('last_trade_from', e.target.value)}
-                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <span className="text-xs text-gray-400">to</span>
-                  <input type="date" value={draft.last_trade_to} onChange={(e) => setField('last_trade_to', e.target.value)}
-                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={draft.last_trade_preset}
+                    onChange={(e) => {
+                      const p = e.target.value as DatePreset;
+                      if (p === '' || p === 'custom') {
+                        setDraft((prev) => ({ ...prev, last_trade_preset: p, last_trade_from: '', last_trade_to: '' }));
+                      } else {
+                        const dates = getPresetDates(p);
+                        setDraft((prev) => ({ ...prev, last_trade_preset: p, last_trade_from: dates.from, last_trade_to: dates.to }));
+                      }
+                    }}
+                    className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">Any</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="last7">Last 7 days</option>
+                    <option value="this_month">This month</option>
+                    <option value="last_month">Last month</option>
+                    <option value="this_year">This year</option>
+                    <option value="last_year">Last year</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {draft.last_trade_preset === 'custom' && (
+                    <>
+                      <input type="date" value={draft.last_trade_from} onChange={(e) => setField('last_trade_from', e.target.value)}
+                        className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <span className="text-xs text-gray-400">to</span>
+                      <input type="date" value={draft.last_trade_to} onChange={(e) => setField('last_trade_to', e.target.value)}
+                        className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </>
+                  )}
+                  {draft.last_trade_preset && draft.last_trade_preset !== 'custom' && draft.last_trade_from && (
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{draft.last_trade_from} → {draft.last_trade_to}</span>
+                  )}
                 </div>
               </div>
 

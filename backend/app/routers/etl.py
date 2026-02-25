@@ -804,7 +804,7 @@ async def sync_status(
     _=Depends(get_current_user),
 ) -> dict:
     logs_result = await db.execute(
-        text("SELECT * FROM etl_sync_log ORDER BY started_at DESC LIMIT 40")
+        text("SELECT * FROM etl_sync_log ORDER BY started_at DESC LIMIT 100")
     )
     rows = logs_result.mappings().all()
 
