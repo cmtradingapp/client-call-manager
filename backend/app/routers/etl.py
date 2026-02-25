@@ -732,7 +732,7 @@ async def hourly_sync_vtiger_campaigns(session_factory: async_sessionmaker) -> N
 # ---------------------------------------------------------------------------
 
 _VTIGER_USERS_SELECT = (
-    "SELECT userid, user_name, first_name, last_name, email1, title, department,"
+    "SELECT id AS userid, user_name, first_name, last_name, email1, title, department,"
     " phone_work, status, is_admin, roleid, user_type, description, reports_to_id,"
     " modifiedtime, date_entered, deleted"
     " FROM report.vtiger_users"
@@ -780,7 +780,7 @@ async def _run_full_sync_vtiger_users(log_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 _VTIGER_CAMPAIGNS_SELECT = (
-    "SELECT campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
+    "SELECT crmid AS campaignid, campaignname, campaigntype, start_date, end_date, closingdate,"
     " campaignstatus, budget, actual_cost, expected_revenue, targetsize, currency_id,"
     " assigned_user_id, modifiedtime, date_entered, deleted"
     " FROM report.vtiger_campaigns"
