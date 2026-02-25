@@ -428,7 +428,7 @@ _DEALIO_USERS_SELECT = (
     " state, zipcode, address, phone, email, compbalance, compprevbalance,"
     " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
     " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
-    " leverage, condition, calculationcurrency, calculationcurrencydigits, equity"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits"
     " FROM dealio.users"
 )
 
@@ -440,7 +440,7 @@ _DEALIO_USERS_UPSERT = (
     " state, zipcode, address, phone, email, compbalance, compprevbalance,"
     " compprevmonthbalance, compprevequity, compcredit, conversionratio, book,"
     " isenabled, status, prevmonthequity, compprevmonthequity, comment, color,"
-    " leverage, condition, calculationcurrency, calculationcurrencydigits, equity)"
+    " leverage, condition, calculationcurrency, calculationcurrencydigits)"
     " VALUES"
     " (:login, :lastupdate, :sourceid, :sourcename, :sourcetype, :groupname, :groupcurrency,"
     " :userid, :actualuserid, :regdate, :lastdate, :agentaccount, :lastip,"
@@ -448,7 +448,7 @@ _DEALIO_USERS_UPSERT = (
     " :state, :zipcode, :address, :phone, :email, :compbalance, :compprevbalance,"
     " :compprevmonthbalance, :compprevequity, :compcredit, :conversionratio, :book,"
     " :isenabled, :status, :prevmonthequity, :compprevmonthequity, :comment, :color,"
-    " :leverage, :condition, :calculationcurrency, :calculationcurrencydigits, :equity)"
+    " :leverage, :condition, :calculationcurrency, :calculationcurrencydigits)"
     " ON CONFLICT (login) DO UPDATE SET"
     " lastupdate = EXCLUDED.lastupdate, sourceid = EXCLUDED.sourceid, sourcename = EXCLUDED.sourcename,"
     " sourcetype = EXCLUDED.sourcetype, groupname = EXCLUDED.groupname, groupcurrency = EXCLUDED.groupcurrency,"
@@ -464,7 +464,7 @@ _DEALIO_USERS_UPSERT = (
     " isenabled = EXCLUDED.isenabled, status = EXCLUDED.status, prevmonthequity = EXCLUDED.prevmonthequity,"
     " compprevmonthequity = EXCLUDED.compprevmonthequity, comment = EXCLUDED.comment, color = EXCLUDED.color,"
     " leverage = EXCLUDED.leverage, condition = EXCLUDED.condition, calculationcurrency = EXCLUDED.calculationcurrency,"
-    " calculationcurrencydigits = EXCLUDED.calculationcurrencydigits, equity = EXCLUDED.equity"
+    " calculationcurrencydigits = EXCLUDED.calculationcurrencydigits"
 )
 
 _dealio_users_map = lambda r: {  # noqa: E731
@@ -482,7 +482,7 @@ _dealio_users_map = lambda r: {  # noqa: E731
     "isenabled": r["isenabled"], "status": r["status"], "prevmonthequity": r["prevmonthequity"],
     "compprevmonthequity": r["compprevmonthequity"], "comment": r["comment"], "color": r["color"],
     "leverage": r["leverage"], "condition": r["condition"], "calculationcurrency": r["calculationcurrency"],
-    "calculationcurrencydigits": r["calculationcurrencydigits"], "equity": r["equity"],
+    "calculationcurrencydigits": r["calculationcurrencydigits"],
 }
 
 _DEALIO_USERS_BATCH = 50_000
@@ -907,9 +907,9 @@ def _build_mv_sql(extra_cols: list) -> str:
         "            balance_agg AS (\n"
         "                SELECT\n"
         "                    ql.accountid,\n"
-        "                    COALESCE(SUM(du.balance), 0) AS total_balance,\n"
-        "                    COALESCE(SUM(du.credit), 0) AS total_credit,\n"
-        "                    COALESCE(SUM(du.equity), 0) AS total_equity" + balance_agg_extras + "\n"
+        "                    COALESCE(SUM(du.compbalance), 0) AS total_balance,\n"
+        "                    COALESCE(SUM(du.compcredit), 0) AS total_credit,\n"
+        "                    COALESCE(SUM(du.compprevequity), 0) AS total_equity" + balance_agg_extras + "\n"
         "                FROM qualifying_logins ql\n"
         "                LEFT JOIN dealio_users du ON du.login = ql.login\n"
         "                GROUP BY ql.accountid\n"
