@@ -115,7 +115,12 @@ async def get_calls_dashboard(
             response.raise_for_status()
             data = response.json()
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Failed to fetch from ElevenLabs: {e}")
+            resp_body = getattr(getattr(e, 'response', None), 'text', '')
+            detail = f"Failed to fetch from ElevenLabs: {e}"
+            if resp_body:
+                detail += f" | Response: {resp_body[:500]}"
+            logger.error(detail)
+            raise HTTPException(status_code=502, detail=detail)
 
         conversations = data.get("conversations", [])
         stop = False

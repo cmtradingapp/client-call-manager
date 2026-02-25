@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -96,10 +97,10 @@ async def get_retention_clients(
 
         if qual_date_from:
             where.append("m.client_qualification_date >= :qual_date_from")
-            params["qual_date_from"] = qual_date_from
+            params["qual_date_from"] = date.fromisoformat(qual_date_from)
         if qual_date_to:
             where.append("m.client_qualification_date <= :qual_date_to")
-            params["qual_date_to"] = qual_date_to
+            params["qual_date_to"] = date.fromisoformat(qual_date_to)
 
         if days_op and days_val is not None:
             cond = _num_cond(days_op, "(CURRENT_DATE - m.client_qualification_date)", "days_val")
@@ -121,10 +122,10 @@ async def get_retention_clients(
 
         if last_trade_from:
             where.append("m.last_trade_date >= :last_trade_from")
-            params["last_trade_from"] = last_trade_from
+            params["last_trade_from"] = date.fromisoformat(last_trade_from)
         if last_trade_to:
             where.append("m.last_trade_date <= :last_trade_to")
-            params["last_trade_to"] = last_trade_to
+            params["last_trade_to"] = date.fromisoformat(last_trade_to)
 
         if days_from_last_trade_op and days_from_last_trade_val is not None:
             cond = _num_cond(days_from_last_trade_op, "(CURRENT_DATE - m.last_close_time::date)", "days_from_last_trade_val")
