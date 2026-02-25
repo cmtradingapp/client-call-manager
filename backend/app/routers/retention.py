@@ -121,10 +121,10 @@ async def get_retention_clients(
                 params["profit_val"] = profit_val
 
         if last_trade_from:
-            where.append("m.last_trade_date >= :last_trade_from")
+            where.append("m.last_trade_date::date >= :last_trade_from")
             params["last_trade_from"] = date.fromisoformat(last_trade_from)
         if last_trade_to:
-            where.append("m.last_trade_date <= :last_trade_to")
+            where.append("m.last_trade_date::date <= :last_trade_to")
             params["last_trade_to"] = date.fromisoformat(last_trade_to)
 
         if days_from_last_trade_op and days_from_last_trade_val is not None:
