@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -171,18 +171,21 @@ async def lifespan(app: FastAPI):
         "interval",
         minutes=30,
         args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     scheduler.add_job(
         incremental_sync_vta,
         "interval",
         minutes=30,
         args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     scheduler.add_job(
         incremental_sync_mtt,
         "interval",
         minutes=30,
         args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     if _ReplicaSession is not None:
         scheduler.add_job(
@@ -190,12 +193,14 @@ async def lifespan(app: FastAPI):
             "interval",
             minutes=30,
             args=[AsyncSessionLocal, _ReplicaSession],
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
         )
         scheduler.add_job(
             incremental_sync_dealio_users,
             "interval",
             minutes=30,
             args=[AsyncSessionLocal, _ReplicaSession],
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
         )
     scheduler.add_job(
         daily_full_sync_all,
@@ -247,7 +252,7 @@ async def health() -> dict:
 
 @app.get("/api/health/time")
 async def health_time() -> dict:
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone, timezone
     from app.database import execute_query
     result = {"server_utc": datetime.now(timezone.utc).isoformat()}
     try:
