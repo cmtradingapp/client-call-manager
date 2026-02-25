@@ -81,25 +81,6 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("retention_extra_columns migration applied")
-    # Rebuild retention_mv using current extra columns config
-    await rebuild_retention_mv()
-    logger.info("retention_mv rebuilt with dynamic columns")
-    # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
-    try:
-        from app.pg_database import engine as _pg_engine
-        async with _pg_engine.connect() as _conn:
-            await _conn.execution_options(isolation_level="AUTOCOMMIT")
-            await _conn.execute(_text("ALTER SYSTEM SET work_mem = '256MB'"))
-            await _conn.execute(_text("ALTER SYSTEM SET effective_cache_size = '9GB'"))
-            await _conn.execute(_text("ALTER SYSTEM SET shared_buffers = '3GB'"))
-            await _conn.execute(_text("ALTER SYSTEM SET maintenance_work_mem = '512MB'"))
-            await _conn.execute(_text("SELECT pg_reload_conf()"))
-        logger.info("PostgreSQL system settings tuned")
-    except Exception as pg_tune_err:
-        logger.warning("Could not apply PostgreSQL system settings (need superuser): %s", pg_tune_err)
-    app.state.http_client = httpx.AsyncClient(timeout=30.0)
-    logger.info("Shared HTTP client initialised")
-
     # Widen sync_type column if still VARCHAR(20) — dealio_users_incremental is 24 chars
     async with AsyncSessionLocal() as session:
         await session.execute(_text("ALTER TABLE etl_sync_log ALTER COLUMN sync_type TYPE VARCHAR(50)"))
@@ -156,6 +137,24 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("vtiger_campaigns table migration applied")
+    # Rebuild retention_mv using current extra columns config (must run after all table migrations)
+    await rebuild_retention_mv()
+    logger.info("retention_mv rebuilt with dynamic columns")
+    # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
+    try:
+        from app.pg_database import engine as _pg_engine
+        async with _pg_engine.connect() as _conn:
+            await _conn.execution_options(isolation_level="AUTOCOMMIT")
+            await _conn.execute(_text("ALTER SYSTEM SET work_mem = '256MB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET effective_cache_size = '9GB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET shared_buffers = '3GB'"))
+            await _conn.execute(_text("ALTER SYSTEM SET maintenance_work_mem = '512MB'"))
+            await _conn.execute(_text("SELECT pg_reload_conf()"))
+        logger.info("PostgreSQL system settings tuned")
+    except Exception as pg_tune_err:
+        logger.warning("Could not apply PostgreSQL system settings (need superuser): %s", pg_tune_err)
+    app.state.http_client = httpx.AsyncClient(timeout=30.0)
+    logger.info("Shared HTTP client initialised")
     from app.replica_database import _ReplicaSession
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
