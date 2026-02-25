@@ -229,46 +229,15 @@ async def incremental_sync_trades(
 # Ant Acc (report.ant_acc) — full sync
 # ---------------------------------------------------------------------------
 
+_ANT_ACC_TEST_FILTER = "ISNULL(is_test_account, 0) = 0"
+
+
 async def _run_full_sync_ant_acc(log_id: int) -> None:
-    try:
-        async with AsyncSessionLocal() as db:
-            await db.execute(text("TRUNCATE TABLE ant_acc"))
-            await db.commit()
-
-        total = 0
-        offset = 0
-
-        while True:
-            rows = await execute_query(
-                "SELECT accountid, client_qualification_date, modifiedtime"
-                " FROM report.ant_acc"
-                " ORDER BY accountid"
-                " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
-                (offset, _ANT_ACC_BATCH_SIZE),
-            )
-            if not rows:
-                break
-
-            async with AsyncSessionLocal() as db:
-                await db.execute(
-                    text(_ANT_ACC_UPSERT),
-                    [{"accountid": str(r["accountid"]), "client_qualification_date": r["client_qualification_date"], "modifiedtime": r["modifiedtime"]} for r in rows],
-                )
-                await db.commit()
-
-            total += len(rows)
-            offset += _ANT_ACC_BATCH_SIZE
-            logger.info("ETL ant_acc full: %d rows so far", total)
-
-            if len(rows) < _ANT_ACC_BATCH_SIZE:
-                break
-
-        await _update_log(log_id, "completed", rows_synced=total)
-        logger.info("ETL ant_acc full sync complete: %d rows", total)
-
-    except Exception as e:
-        logger.error("ETL ant_acc full sync failed: %s", e)
-        await _update_log(log_id, "error", error=str(e))
+    await _mssql_full_sync(
+        log_id, "ant_acc_full",
+        f"{_ANT_ACC_SELECT} WHERE {_ANT_ACC_TEST_FILTER}",
+        "ant_acc", _ANT_ACC_UPSERT, _ant_acc_map,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +248,7 @@ async def incremental_sync_ant_acc(session_factory: async_sessionmaker) -> None:
     if await _is_running("ant_acc"):
         logger.info("ETL ant_acc: skipping scheduled run — sync already in progress")
         return
-    await _mssql_incremental_sync(session_factory, "ant_acc_incremental", "ant_acc", _ANT_ACC_SELECT, _ANT_ACC_UPSERT, _ant_acc_map)
+    await _mssql_incremental_sync(session_factory, "ant_acc_incremental", "ant_acc", _ANT_ACC_SELECT, _ANT_ACC_UPSERT, _ant_acc_map, extra_where=_ANT_ACC_TEST_FILTER)
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +304,7 @@ async def _mssql_incremental_sync(
     timestamp_col: str = "modifiedtime",
     lookback_hours: int = 3,
     window_minutes: int | None = None,
+    extra_where: str = "",
 ) -> None:
     log_id: int | None = None
     try:
@@ -346,9 +316,10 @@ async def _mssql_incremental_sync(
             log_id = log.id
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+        extra = f" AND {extra_where}" if extra_where else ""
 
         rows = await execute_query(
-            f"{mssql_select} WHERE {timestamp_col} > ? ORDER BY {timestamp_col}",
+            f"{mssql_select} WHERE {timestamp_col} > ?{extra} ORDER BY {timestamp_col}",
             (cutoff,),
         )
         if rows:
