@@ -348,7 +348,9 @@ export function RetentionPage() {
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.accountid}</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
