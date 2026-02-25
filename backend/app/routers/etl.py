@@ -557,8 +557,9 @@ async def incremental_sync_dealio_users(
             await db.refresh(log)
             log_id = log.id
 
-        # lastupdate is timestamp with time zone — timezone-aware cutoff works directly
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=3)
+        # Strip tzinfo so the cutoff matches replica's timestamp without time zone,
+        # same approach as trades incremental (avoids type mismatch on some replicas)
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(tzinfo=None)
         total = 0
         offset = 0
 
