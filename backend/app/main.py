@@ -16,6 +16,7 @@ from app.routers.call_mappings import router as call_mappings_router
 from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, refresh_retention_mv, rebuild_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_fields import router as retention_fields_router
+from app.routers.retention_tasks import router as retention_tasks_router
 from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
 from app.routers.users_admin import router as users_router
@@ -81,6 +82,17 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("retention_extra_columns migration applied")
+    # Migrate: ensure retention_tasks table exists
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS retention_tasks ("
+            "id SERIAL PRIMARY KEY, "
+            "name VARCHAR(255) NOT NULL, "
+            "conditions TEXT NOT NULL DEFAULT '[]', "
+            "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        ))
+        await session.commit()
+    logger.info("retention_tasks table migration applied")
     # Widen sync_type column if still VARCHAR(20) — dealio_users_incremental is 24 chars
     async with AsyncSessionLocal() as session:
         await session.execute(_text("ALTER TABLE etl_sync_log ALTER COLUMN sync_type TYPE VARCHAR(50)"))
@@ -230,6 +242,7 @@ app.include_router(call_mappings_router, prefix="/api")
 app.include_router(etl_router, prefix="/api")
 app.include_router(retention_router, prefix="/api")
 app.include_router(retention_fields_router, prefix="/api")
+app.include_router(retention_tasks_router, prefix="/api")
 
 
 @app.get("/health")
