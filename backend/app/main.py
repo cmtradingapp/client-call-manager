@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("retention_tasks table migration applied")
+    # Migrate: add color column to retention_tasks if not present
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "ALTER TABLE retention_tasks ADD COLUMN IF NOT EXISTS color VARCHAR(20) NOT NULL DEFAULT 'grey'"
+        ))
+        await session.commit()
+    logger.info("retention_tasks.color column migration applied")
     # Migrate: ensure scoring_rules table exists
     async with AsyncSessionLocal() as session:
         await session.execute(_text(

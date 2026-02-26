@@ -19,10 +19,13 @@ interface Condition {
   value: string;
 }
 
+type TaskColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'pink' | 'grey';
+
 interface RetentionTask {
   id: number;
   name: string;
   conditions: Condition[];
+  color: TaskColor;
   created_at: string;
 }
 
@@ -75,6 +78,19 @@ const NUM_OPS = [
 ];
 
 const OP_LABELS: Record<string, string> = { eq: '=', gt: '>', lt: '<', gte: '≥', lte: '≤' };
+
+const TASK_COLORS: { key: TaskColor; label: string; hex: string; bg: string; text: string; border: string }[] = [
+  { key: 'red',    label: 'Red',    hex: '#EF4444', bg: 'bg-red-100',    text: 'text-red-700',    border: 'border-red-400' },
+  { key: 'orange', label: 'Orange', hex: '#F97316', bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-400' },
+  { key: 'yellow', label: 'Yellow', hex: '#EAB308', bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-400' },
+  { key: 'green',  label: 'Green',  hex: '#22C55E', bg: 'bg-green-100',  text: 'text-green-700',  border: 'border-green-400' },
+  { key: 'blue',   label: 'Blue',   hex: '#3B82F6', bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-400' },
+  { key: 'purple', label: 'Purple', hex: '#A855F7', bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-400' },
+  { key: 'pink',   label: 'Pink',   hex: '#EC4899', bg: 'bg-pink-100',   text: 'text-pink-700',   border: 'border-pink-400' },
+  { key: 'grey',   label: 'Grey',   hex: '#6B7280', bg: 'bg-gray-100',   text: 'text-gray-700',   border: 'border-gray-400' },
+];
+
+const COLOR_MAP = Object.fromEntries(TASK_COLORS.map((c) => [c.key, c])) as Record<TaskColor, typeof TASK_COLORS[number]>;
 
 const PAGE_SIZE = 50;
 
@@ -208,6 +224,7 @@ export function RetentionTasksPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<RetentionTask | null>(null);
   const [formName, setFormName] = useState('');
+  const [formColor, setFormColor] = useState<TaskColor>('grey');
   const [formConditions, setFormConditions] = useState<Condition[]>([{ ...DEFAULT_CONDITION }]);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
@@ -242,6 +259,7 @@ export function RetentionTasksPage() {
   function openCreate() {
     setEditingTask(null);
     setFormName('');
+    setFormColor('grey');
     setFormConditions([{ ...DEFAULT_CONDITION }]);
     setFormError('');
     setFormOpen(true);
@@ -250,6 +268,7 @@ export function RetentionTasksPage() {
   function openEdit(task: RetentionTask) {
     setEditingTask(task);
     setFormName(task.name);
+    setFormColor(task.color || 'grey');
     setFormConditions(task.conditions.length > 0 ? task.conditions.map((c) => ({ ...c })) : [{ ...DEFAULT_CONDITION }]);
     setFormError('');
     setFormOpen(true);
@@ -286,11 +305,13 @@ export function RetentionTasksPage() {
         await api.put(`/retention/tasks/${editingTask.id}`, {
           name: formName.trim(),
           conditions: formConditions,
+          color: formColor,
         });
       } else {
         await api.post('/retention/tasks', {
           name: formName.trim(),
           conditions: formConditions,
+          color: formColor,
         });
       }
       closeForm();
@@ -399,6 +420,29 @@ export function RetentionTasksPage() {
             />
           </div>
 
+          {/* Color */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {TASK_COLORS.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setFormColor(c.key)}
+                  className={`w-7 h-7 rounded-full border-2 transition-all ${
+                    formColor === c.key ? 'ring-2 ring-offset-1 ring-blue-500 scale-110' : 'hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: c.hex, borderColor: formColor === c.key ? '#3B82F6' : c.hex }}
+                  title={c.label}
+                  aria-label={`Select ${c.label} color`}
+                />
+              ))}
+              <span className="text-xs text-gray-500 ml-2">
+                {TASK_COLORS.find((c) => c.key === formColor)?.label ?? 'Grey'}
+              </span>
+            </div>
+          </div>
+
           {/* Conditions */}
           <div className="space-y-2">
             <label className="block text-xs font-medium text-gray-600">
@@ -456,9 +500,14 @@ export function RetentionTasksPage() {
             const clientsState = taskClients[task.id];
 
             return (
-              <div key={task.id} className="bg-white rounded-lg shadow">
+              <div key={task.id} className="bg-white rounded-lg shadow border-l-4" style={{ borderLeftColor: COLOR_MAP[task.color]?.hex || COLOR_MAP.grey.hex }}>
                 {/* Card header */}
                 <div className="px-4 py-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: COLOR_MAP[task.color]?.hex || COLOR_MAP.grey.hex }}
+                    title={COLOR_MAP[task.color]?.label || 'Grey'}
+                  />
                   <span className="font-semibold text-gray-900 text-sm mr-2">{task.name}</span>
                   <div className="flex flex-wrap gap-1 flex-1">
                     {task.conditions.map((c, i) => (
