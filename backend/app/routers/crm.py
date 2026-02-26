@@ -29,47 +29,79 @@ def _crm_headers() -> dict[str, str]:
     }
 
 
-def _handle_crm_error(response: httpx.Response, context: str) -> None:
-    """Inspect CRM response and raise an appropriate HTTPException on error.
+def _handle_crm_response(response: httpx.Response, context: str) -> dict:
+    """Inspect CRM response and raise appropriate HTTPException on error.
 
-    Mapping:
-      - CRM 404 / empty result  -> 404  (client not found)
-      - CRM 400                 -> 400  (bad request — invalid params)
-      - CRM 401/403             -> 502  (auth issue on our side)
-      - CRM 5xx                 -> 503  (CRM service unavailable)
-      - Other 4xx               -> 502  (unexpected CRM error)
+    The CRM API returns HTTP 200 for all responses. Errors are indicated
+    by the JSON body: {"success": false, "error": {...}, "result": null}.
+
+    For non-200 HTTP codes (rare), we map them to appropriate status codes.
+    For 200 responses with success=false, we inspect the error details.
     """
-    if response.status_code < 400:
-        return
+    # Handle non-200 HTTP responses (rare but possible)
+    if response.status_code >= 400:
+        body_preview = response.text[:500] if response.text else ""
+        logger.error("CRM API HTTP error [%s] %d: %s", context, response.status_code, body_preview)
 
-    body_preview = response.text[:500] if response.text else ""
-    logger.error("CRM API error [%s] %d: %s", context, response.status_code, body_preview)
-
-    if response.status_code == 404:
-        raise HTTPException(
-            status_code=404,
-            detail="Client not found in CRM. Please verify the account ID.",
-        )
-    if response.status_code == 400:
-        raise HTTPException(
-            status_code=400,
-            detail=f"CRM rejected the request: {body_preview}" if body_preview else "CRM rejected the request due to invalid parameters.",
-        )
-    if response.status_code in (401, 403):
+        if response.status_code in (401, 403):
+            raise HTTPException(
+                status_code=502,
+                detail="CRM authentication failed. Please contact an administrator.",
+            )
+        if response.status_code >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail="CRM service is temporarily unavailable. Please try again later.",
+            )
         raise HTTPException(
             status_code=502,
-            detail="CRM authentication failed. Please contact an administrator.",
+            detail=f"CRM returned an unexpected error ({response.status_code}).",
         )
-    if response.status_code >= 500:
+
+    # Parse JSON body
+    try:
+        data = response.json()
+    except Exception:
+        logger.error("CRM API returned non-JSON response [%s]: %s", context, response.text[:200])
         raise HTTPException(
-            status_code=503,
-            detail="CRM service is temporarily unavailable. Please try again later.",
+            status_code=502,
+            detail="CRM returned an unexpected response format.",
         )
-    # Any other 4xx
-    raise HTTPException(
-        status_code=502,
-        detail=f"CRM returned an unexpected error ({response.status_code}): {body_preview}",
-    )
+
+    # Check CRM-level success flag
+    if data.get("success") is False:
+        error_info = data.get("error")
+        if isinstance(error_info, dict):
+            error_details = error_info.get("errorDetails", "")
+            error_desc = error_info.get("errorDesc", "")
+        elif isinstance(error_info, str):
+            error_details = error_info
+            error_desc = ""
+        else:
+            error_details = str(error_info) if error_info else ""
+            error_desc = ""
+
+        logger.error("CRM API business error [%s]: %s — %s", context, error_desc, error_details)
+
+        # Detect "not found" pattern
+        if "not found" in error_details.lower():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Client not found in CRM: {error_details}",
+            )
+        # Detect empty/invalid input pattern
+        if "not valid" in error_details.lower() or "cannot be empty" in error_details.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"CRM validation error: {error_details}",
+            )
+        # Generic CRM error
+        raise HTTPException(
+            status_code=502,
+            detail=f"CRM error: {error_details or error_desc or 'Unknown error'}",
+        )
+
+    return data
 
 
 class RetentionStatusUpdate(BaseModel):
@@ -105,8 +137,7 @@ async def update_retention_status(
     try:
         http_client = request.app.state.http_client
         response = await http_client.put(crm_url, params=params, headers=_crm_headers())
-
-        _handle_crm_error(response, f"update_retention_status({account_id})")
+        _handle_crm_response(response, f"update_retention_status({account_id})")
 
         logger.info(
             "CRM API success: account %s retention status updated to %d",
@@ -156,8 +187,7 @@ async def add_client_note(
     try:
         http_client = request.app.state.http_client
         response = await http_client.post(crm_url, params=params, headers=_crm_headers())
-
-        _handle_crm_error(response, f"add_client_note({account_id})")
+        _handle_crm_response(response, f"add_client_note({account_id})")
 
         logger.info("CRM API success: note added for account %s", account_id)
         return {
@@ -185,27 +215,25 @@ async def get_crm_user(
 ) -> dict:
     """Proxy endpoint to fetch CRM user details (including phone number)."""
     crm_url = f"{settings.crm_api_base_url}/crm-api/user"
-    params: dict[str, Any] = {"userId": account_id}
+    params: dict[str, Any] = {"id": account_id}
 
     logger.info("CRM API call: fetching user details for account %s", account_id)
 
     try:
         http_client = request.app.state.http_client
         response = await http_client.get(crm_url, params=params, headers=_crm_headers())
+        data = _handle_crm_response(response, f"get_crm_user({account_id})")
 
-        _handle_crm_error(response, f"get_crm_user({account_id})")
-
-        data = response.json()
-
-        # Some CRM responses return success but with empty/null user data
-        if not data:
+        # CRM wraps the user object in a "result" field
+        result = data.get("result")
+        if not result:
             raise HTTPException(
                 status_code=404,
                 detail="Client not found in CRM. Please verify the account ID.",
             )
 
         logger.info("CRM API success: fetched user details for account %s", account_id)
-        return data
+        return result
     except HTTPException:
         raise
     except httpx.TimeoutException:

@@ -355,7 +355,7 @@ function ClientActionsModal({
     setWaFeedback(null);
     try {
       const res = await api.get(`/clients/${client.accountid}/crm-user`);
-      const phone = res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
+      const phone = res.data?.fullTelephone || res.data?.telephone || res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
       if (!phone) {
         setWaFeedback({ type: 'error', message: 'No phone number found for this client' });
         return;
