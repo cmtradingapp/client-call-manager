@@ -281,6 +281,35 @@ async def get_retention_clients(
         except Exception as pnl_err:
             logger.warning("Could not fetch open PNL from replica: %s", pnl_err)
 
+        # Evaluate which retention tasks each client on this page matches
+        import json as _json
+        from sqlalchemy import select as _select
+        from app.models.retention_task import RetentionTask
+        from app.routers.retention_tasks import _build_task_where
+        tasks_map: dict = {str(r["accountid"]): [] for r in rows}
+        try:
+            all_tasks_result = await db.execute(
+                _select(RetentionTask).order_by(RetentionTask.id)
+            )
+            all_tasks = all_tasks_result.scalars().all()
+            page_aids = [str(r["accountid"]) for r in rows]
+            if all_tasks and page_aids:
+                for task in all_tasks:
+                    conditions = _json.loads(task.conditions)
+                    t_where, t_params = _build_task_where(conditions)
+                    t_params["_page_aids"] = page_aids
+                    t_where_clause = " AND ".join(t_where + ["m.accountid = ANY(:_page_aids)"])
+                    t_result = await db.execute(
+                        text(f"SELECT m.accountid FROM retention_mv m WHERE {t_where_clause}"),
+                        t_params,
+                    )
+                    for tr in t_result.fetchall():
+                        aid = str(tr[0])
+                        if aid in tasks_map:
+                            tasks_map[aid].append(task.name)
+        except Exception as tasks_err:
+            logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
+
         return {
             "total": total,
             "page": page,
@@ -304,6 +333,7 @@ async def get_retention_clients(
                     "open_pnl": open_pnl_map.get(str(r["accountid"]), 0.0),
                     "assigned_to": r["assigned_to"],
                     "agent_name": agent_map.get(str(r["assigned_to"])) if r["assigned_to"] else None,
+                    "tasks": tasks_map.get(str(r["accountid"]), []),
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
                     **{col: r[col] for col in _extra_col_names},

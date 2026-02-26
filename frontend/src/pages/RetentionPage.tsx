@@ -50,6 +50,7 @@ interface RetentionClient {
   open_pnl: number;
   assigned_to: string | null;
   agent_name: string | null;
+  tasks: string[];
   sales_client_potential: string | null;
   age: number | null;
 }
@@ -412,6 +413,7 @@ export function RetentionPage() {
             <thead className="bg-gray-50 sticky top-0">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tasks</th>
                 <th className={thClass} onClick={() => handleSort('agent_name')}>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
@@ -433,14 +435,25 @@ export function RetentionPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={18} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={19} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={18} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={19} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium">
                       <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.tasks.length === 0 ? (
+                        <span className="text-xs text-gray-400">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {c.tasks.map((t) => (
+                            <span key={t} className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 whitespace-nowrap">{t}</span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
