@@ -32,6 +32,11 @@ type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' |
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
+interface TaskInfo {
+  name: string;
+  color: string;
+}
+
 interface RetentionClient {
   accountid: string;
   client_qualification_date: string | null;
@@ -50,7 +55,7 @@ interface RetentionClient {
   open_pnl: number;
   assigned_to: string | null;
   agent_name: string | null;
-  tasks: string[];
+  tasks: TaskInfo[];
   score: number;
   sales_client_potential: string | null;
   age: number | null;
@@ -181,6 +186,17 @@ function BoolSelect({ label, value, onChange }: { label: string; value: BoolFilt
     </div>
   );
 }
+
+const TASK_COLOR_STYLES: Record<string, { bg: string; text: string }> = {
+  red:    { bg: 'bg-red-100',    text: 'text-red-700' },
+  orange: { bg: 'bg-orange-100', text: 'text-orange-700' },
+  yellow: { bg: 'bg-yellow-100', text: 'text-yellow-700' },
+  green:  { bg: 'bg-green-100',  text: 'text-green-700' },
+  blue:   { bg: 'bg-blue-100',   text: 'text-blue-700' },
+  purple: { bg: 'bg-purple-100', text: 'text-purple-700' },
+  pink:   { bg: 'bg-pink-100',   text: 'text-pink-700' },
+  grey:   { bg: 'bg-gray-100',   text: 'text-gray-700' },
+};
 
 function BoolBadge({ value }: { value: boolean }) {
   return value
@@ -471,9 +487,12 @@ export function RetentionPage() {
                         <span className="text-xs text-gray-400">—</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {c.tasks.map((t) => (
-                            <span key={t} className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 whitespace-nowrap">{t}</span>
-                          ))}
+                          {c.tasks.map((t) => {
+                            const style = TASK_COLOR_STYLES[t.color] || TASK_COLOR_STYLES.grey;
+                            return (
+                              <span key={t.name} className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} whitespace-nowrap`}>{t.name}</span>
+                            );
+                          })}
                         </div>
                       )}
                     </td>

@@ -117,14 +117,19 @@ class ConditionIn(BaseModel):
     value: str
 
 
+VALID_COLORS = {"red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"}
+
+
 class TaskCreate(BaseModel):
     name: str
     conditions: List[ConditionIn]
+    color: Optional[str] = "grey"
 
 
 class TaskUpdate(BaseModel):
     name: Optional[str] = None
     conditions: Optional[List[ConditionIn]] = None
+    color: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +141,7 @@ def _task_out(task: RetentionTask) -> Dict[str, Any]:
         "id": task.id,
         "name": task.name,
         "conditions": json.loads(task.conditions),
+        "color": task.color or "grey",
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }
 
@@ -162,9 +168,13 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     _: Any = Depends(get_current_user),
 ) -> Dict[str, Any]:
+    color = (body.color or "grey").lower()
+    if color not in VALID_COLORS:
+        color = "grey"
     task = RetentionTask(
         name=body.name,
         conditions=json.dumps([c.model_dump() for c in body.conditions]),
+        color=color,
     )
     db.add(task)
     await db.commit()
@@ -186,6 +196,10 @@ async def update_task(
         task.name = body.name
     if body.conditions is not None:
         task.conditions = json.dumps([c.model_dump() for c in body.conditions])
+    if body.color is not None:
+        color = body.color.lower()
+        if color in VALID_COLORS:
+            task.color = color
     await db.commit()
     await db.refresh(task)
     return _task_out(task)

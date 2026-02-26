@@ -321,7 +321,7 @@ async def get_retention_clients(
                     for tr in t_result.fetchall():
                         aid = str(tr[0])
                         if aid in tasks_map:
-                            tasks_map[aid].append(task.name)
+                            tasks_map[aid].append({"name": task.name, "color": task.color or "grey"})
         except Exception as tasks_err:
             logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
 
