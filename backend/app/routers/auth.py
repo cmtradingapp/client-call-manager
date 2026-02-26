@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import get_current_user
 from app.config import settings
-from app.models.role import Role
+from app.models.role import ALL_PAGES, Role
 from app.models.user import User
 from app.pg_database import get_db
 from app.seed import verify_password
@@ -39,10 +39,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
-    # Fetch permissions from role
-    role_result = await db.execute(select(Role).where(Role.name == user.role))
-    role_obj = role_result.scalar_one_or_none()
-    permissions = role_obj.permissions if role_obj else []
+    # Fetch permissions from role — admin always gets all pages
+    if user.role == "admin":
+        permissions = list(ALL_PAGES)
+    else:
+        role_result = await db.execute(select(Role).where(Role.name == user.role))
+        role_obj = role_result.scalar_one_or_none()
+        permissions = role_obj.permissions if role_obj else []
 
     token = create_token(user.id, user.role)
     return {
