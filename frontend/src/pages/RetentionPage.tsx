@@ -28,7 +28,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age' | 'agent_name';
+type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -51,6 +51,7 @@ interface RetentionClient {
   assigned_to: string | null;
   agent_name: string | null;
   tasks: string[];
+  score: number;
   sales_client_potential: string | null;
   age: number | null;
 }
@@ -434,6 +435,7 @@ export function RetentionPage() {
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tasks</th>
+                <th className={thClassRight} onClick={() => handleSort('score')}>Score <SortIcon col="score" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('agent_name')}>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
@@ -455,9 +457,9 @@ export function RetentionPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={19} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={20} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={19} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={20} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
@@ -475,6 +477,7 @@ export function RetentionPage() {
                         </div>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-blue-700">{c.score}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>

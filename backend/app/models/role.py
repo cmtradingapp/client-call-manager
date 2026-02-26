@@ -12,6 +12,7 @@ ALL_PAGES = [
     "batch-call",
     "retention",
     "retention-tasks",
+    "client-scoring",
 ]
 
 
