@@ -261,6 +261,26 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
+type ActionTab = 'status' | 'note' | 'whatsapp';
+
+function StatusIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  );
+}
+
+function NoteIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
 function ClientActionsModal({
   client,
   onClose,
@@ -268,6 +288,9 @@ function ClientActionsModal({
   client: RetentionClient;
   onClose: () => void;
 }) {
+  // Active tab
+  const [activeTab, setActiveTab] = useState<ActionTab>('status');
+
   // Retention status state
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [statusSubmitting, setStatusSubmitting] = useState(false);
@@ -326,7 +349,6 @@ function ClientActionsModal({
         setWaFeedback({ type: 'error', message: 'No phone number found for this client' });
         return;
       }
-      // Strip non-numeric characters from the phone number
       const cleanPhone = String(phone).replace(/[^0-9+]/g, '').replace(/^\+/, '');
       const waUrl = `https://api.whatsapp.com/send?phone=${encodeURIComponent(cleanPhone)}&text=${encodeURIComponent('Hi I want to call you')}`;
       window.open(waUrl, '_blank');
@@ -342,7 +364,7 @@ function ClientActionsModal({
   const feedbackEl = (fb: { type: 'success' | 'error'; message: string } | null) =>
     fb ? (
       <div
-        className={`px-3 py-2 rounded-md text-sm mt-2 ${
+        className={`px-3 py-2 rounded-md text-sm mt-3 ${
           fb.type === 'success'
             ? 'bg-green-50 text-green-700 border border-green-200'
             : 'bg-red-50 text-red-700 border border-red-200'
@@ -351,6 +373,24 @@ function ClientActionsModal({
         {fb.message}
       </div>
     ) : null;
+
+  const tabs: { key: ActionTab; label: string; icon: JSX.Element }[] = [
+    {
+      key: 'status',
+      label: 'Status',
+      icon: <StatusIcon className="w-5 h-5" />,
+    },
+    {
+      key: 'note',
+      label: 'Note',
+      icon: <NoteIcon className="w-5 h-5" />,
+    },
+    {
+      key: 'whatsapp',
+      label: 'WhatsApp',
+      icon: <WhatsAppIcon className="w-5 h-5" />,
+    },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -373,21 +413,42 @@ function ClientActionsModal({
           </button>
         </div>
 
-        {/* Body — scrollable */}
-        <div className="px-6 py-5 space-y-5 overflow-y-auto">
-          {/* Action 1: Change Retention Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Change Retention Status
-            </label>
-            <div className="flex gap-2">
+        {/* Icon tab navigation */}
+        <div className="px-6 pt-4 pb-0 shrink-0">
+          <div className="flex gap-1 justify-center">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === tab.key
+                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
+                }`}
+                title={tab.label}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Body — only active action shown */}
+        <div className="px-6 py-5 overflow-y-auto">
+          {/* Action: Change Retention Status */}
+          {activeTab === 'status' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Change Retention Status
+              </label>
               <select
                 value={selectedStatus}
                 onChange={(e) => {
                   setSelectedStatus(e.target.value);
                   setStatusFeedback(null);
                 }}
-                className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 disabled={statusSubmitting}
               >
                 <option value="">-- Select Status --</option>
@@ -397,66 +458,66 @@ function ClientActionsModal({
                   </option>
                 ))}
               </select>
-              <button
-                onClick={handleStatusSubmit}
-                disabled={!selectedStatus || statusSubmitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {statusSubmitting ? 'Updating...' : 'Update'}
-              </button>
+              <div className="flex justify-end mt-3">
+                <button
+                  onClick={handleStatusSubmit}
+                  disabled={!selectedStatus || statusSubmitting}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {statusSubmitting ? 'Updating...' : 'Update Status'}
+                </button>
+              </div>
+              {feedbackEl(statusFeedback)}
             </div>
-            {feedbackEl(statusFeedback)}
-          </div>
+          )}
 
-          {/* Divider */}
-          <hr className="border-gray-200" />
-
-          {/* Action 2: Add Note */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Add Note
-            </label>
-            <textarea
-              value={noteText}
-              onChange={(e) => {
-                setNoteText(e.target.value);
-                setNoteFeedback(null);
-              }}
-              placeholder="Type a note for this client..."
-              rows={3}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              disabled={noteSubmitting}
-            />
-            <div className="flex justify-end mt-2">
-              <button
-                onClick={handleNoteSubmit}
-                disabled={!noteText.trim() || noteSubmitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {noteSubmitting ? 'Submitting...' : 'Submit Note'}
-              </button>
+          {/* Action: Add Note */}
+          {activeTab === 'note' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Add Note
+              </label>
+              <textarea
+                value={noteText}
+                onChange={(e) => {
+                  setNoteText(e.target.value);
+                  setNoteFeedback(null);
+                }}
+                placeholder="Type a note for this client..."
+                rows={4}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                disabled={noteSubmitting}
+              />
+              <div className="flex justify-end mt-3">
+                <button
+                  onClick={handleNoteSubmit}
+                  disabled={!noteText.trim() || noteSubmitting}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {noteSubmitting ? 'Submitting...' : 'Submit Note'}
+                </button>
+              </div>
+              {feedbackEl(noteFeedback)}
             </div>
-            {feedbackEl(noteFeedback)}
-          </div>
+          )}
 
-          {/* Divider */}
-          <hr className="border-gray-200" />
-
-          {/* Action 3: Send WhatsApp */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Send WhatsApp
-            </label>
-            <button
-              onClick={handleWhatsApp}
-              disabled={waLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <WhatsAppIcon className="w-4 h-4" />
-              {waLoading ? 'Fetching phone...' : 'Send WhatsApp'}
-            </button>
-            {feedbackEl(waFeedback)}
-          </div>
+          {/* Action: Send WhatsApp */}
+          {activeTab === 'whatsapp' && (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Send a WhatsApp message to this client. The phone number will be fetched from the CRM automatically.
+              </p>
+              <button
+                onClick={handleWhatsApp}
+                disabled={waLoading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <WhatsAppIcon className="w-5 h-5" />
+                {waLoading ? 'Fetching phone...' : 'Open WhatsApp'}
+              </button>
+              {feedbackEl(waFeedback)}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
