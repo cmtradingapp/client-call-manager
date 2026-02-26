@@ -12,7 +12,6 @@ ALL_PAGES = [
     "batch-call",
     "retention",
     "retention-tasks",
-    "retention-fields",
 ]
 
 

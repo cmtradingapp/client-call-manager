@@ -15,7 +15,6 @@ from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
 from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, refresh_retention_mv, rebuild_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
-from app.routers.retention_fields import router as retention_fields_router
 from app.routers.retention_tasks import router as retention_tasks_router
 from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
@@ -241,7 +240,6 @@ app.include_router(roles_router, prefix="/api")
 app.include_router(call_mappings_router, prefix="/api")
 app.include_router(etl_router, prefix="/api")
 app.include_router(retention_router, prefix="/api")
-app.include_router(retention_fields_router, prefix="/api")
 app.include_router(retention_tasks_router, prefix="/api")
 
 
