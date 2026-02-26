@@ -35,13 +35,12 @@ async def update_retention_status(
         raise HTTPException(status_code=400, detail=f"Invalid status_key: {body.status_key}")
 
     crm_url = f"{settings.crm_api_base_url}/crm-api/retention"
-    params = {
+    params: dict[str, Any] = {
         "userId": account_id,
         "retentionStatus": body.status_key,
     }
-    headers = {}
     if settings.crm_api_token:
-        headers["Authorization"] = f"Bearer {settings.crm_api_token}"
+        params["token"] = settings.crm_api_token
 
     logger.info(
         "CRM API call: updating retention status for account %s to %d",
@@ -51,7 +50,7 @@ async def update_retention_status(
 
     try:
         http_client = request.app.state.http_client
-        response = await http_client.post(crm_url, params=params, headers=headers)
+        response = await http_client.put(crm_url, params=params)
 
         if response.status_code >= 400:
             detail = response.text[:500] if response.text else f"CRM API returned {response.status_code}"
@@ -93,19 +92,18 @@ async def add_client_note(
         raise HTTPException(status_code=400, detail="Note text cannot be empty")
 
     crm_url = f"{settings.crm_api_base_url}/crm-api/user-note"
-    params = {
+    params: dict[str, Any] = {
         "userId": account_id,
         "note": body.note.strip(),
     }
-    headers = {}
     if settings.crm_api_token:
-        headers["Authorization"] = f"Bearer {settings.crm_api_token}"
+        params["token"] = settings.crm_api_token
 
     logger.info("CRM API call: adding note for account %s", account_id)
 
     try:
         http_client = request.app.state.http_client
-        response = await http_client.post(crm_url, params=params, headers=headers)
+        response = await http_client.post(crm_url, params=params)
 
         if response.status_code >= 400:
             detail = response.text[:500] if response.text else f"CRM API returned {response.status_code}"
@@ -135,16 +133,15 @@ async def get_crm_user(
 ) -> dict:
     """Proxy endpoint to fetch CRM user details (including phone number)."""
     crm_url = f"{settings.crm_api_base_url}/crm-api/user"
-    params = {"userId": account_id}
-    headers = {}
+    params: dict[str, Any] = {"userId": account_id}
     if settings.crm_api_token:
-        headers["Authorization"] = f"Bearer {settings.crm_api_token}"
+        params["token"] = settings.crm_api_token
 
     logger.info("CRM API call: fetching user details for account %s", account_id)
 
     try:
         http_client = request.app.state.http_client
-        response = await http_client.get(crm_url, params=params, headers=headers)
+        response = await http_client.get(crm_url, params=params)
 
         if response.status_code >= 400:
             detail = response.text[:500] if response.text else f"CRM API returned {response.status_code}"
