@@ -4,6 +4,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.integration import Integration
 from app.models.role import ALL_PAGES, Role
 from app.models.user import User
 
@@ -55,5 +56,19 @@ async def seed_admin(session: AsyncSession) -> None:
         )
         session.add(admin)
         logger.info("Admin user created")
+
+    # Seed CRM integration if not already present
+    result = await session.execute(select(Integration).where(Integration.name == "CRM API"))
+    if not result.scalar_one_or_none():
+        from app.config import settings as _settings
+        crm_integration = Integration(
+            name="CRM API",
+            base_url=_settings.crm_api_base_url + "/crm-api/",
+            auth_key=_settings.crm_api_token or None,
+            description="CMTrading CRM API — retention status, user notes, user lookup",
+            is_active=True,
+        )
+        session.add(crm_integration)
+        logger.info("CRM integration seeded")
 
     await session.commit()

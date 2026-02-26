@@ -12,6 +12,7 @@ import { RetentionPage } from './pages/RetentionPage';
 import { ETLPage } from './pages/ETLPage';
 import { RetentionTasksPage } from './pages/RetentionTasksPage';
 import { ClientScoringPage } from './pages/ClientScoringPage';
+import { IntegrationsPage } from './pages/admin/IntegrationsPage';
 import { RolesPage } from './pages/admin/RolesPage';
 import { UsersPage } from './pages/admin/UsersPage';
 
@@ -46,6 +47,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/admin/users', label: 'Users' },
       { to: '/admin/roles', label: 'Roles' },
       { to: '/admin/etl', label: 'Data Sync' },
+      { to: '/admin/integrations', label: 'Integrations & Config' },
     ],
   },
 ];
@@ -61,6 +63,7 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
   { path: '/admin/users', title: 'Users', element: <UsersPage />, adminOnly: true },
   { path: '/admin/roles', title: 'Roles', element: <RolesPage />, adminOnly: true },
   { path: '/admin/etl', title: 'Data Sync', element: <ETLPage />, adminOnly: true },
+  { path: '/admin/integrations', title: 'Integrations & Configuration', element: <IntegrationsPage />, adminOnly: true },
 ];
 
 function ProtectedLayout() {

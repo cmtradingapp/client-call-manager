@@ -21,6 +21,7 @@ from app.routers.crm import router as crm_router
 from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
 from app.routers.users_admin import router as users_router
+from app.routers.integrations_admin import router as integrations_router
 from app.seed import seed_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -152,6 +153,20 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("vtiger_campaigns table recreated with correct schema")
+    # Migrate: ensure integrations table exists
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS integrations ("
+            "id SERIAL PRIMARY KEY, "
+            "name VARCHAR(255) NOT NULL, "
+            "base_url VARCHAR(500) NOT NULL, "
+            "auth_key VARCHAR(500), "
+            "description TEXT, "
+            "is_active BOOLEAN NOT NULL DEFAULT TRUE, "
+            "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        ))
+        await session.commit()
+    logger.info("integrations table migration applied")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")
@@ -265,6 +280,7 @@ app.include_router(retention_router, prefix="/api")
 app.include_router(retention_tasks_router, prefix="/api")
 app.include_router(client_scoring_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
+app.include_router(integrations_router, prefix="/api")
 
 
 @app.get("/health")
