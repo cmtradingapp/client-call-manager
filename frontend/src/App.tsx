@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 
 import { useAuthStore } from './store/useAuthStore';
@@ -65,6 +66,12 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
 function ProtectedLayout() {
   const { token, role, permissions, logout } = useAuthStore();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar_collapsed') === 'true');
+
+  const toggleSidebar = () => setCollapsed((v) => {
+    localStorage.setItem('sidebar_collapsed', String(!v));
+    return !v;
+  });
 
   if (!token) return <Navigate to="/login" replace />;
 
@@ -84,46 +91,57 @@ function ProtectedLayout() {
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
-      <aside className="w-56 bg-gray-900 text-white flex flex-col flex-shrink-0">
-        <div className="px-5 py-5 border-b border-gray-700">
-          <span className="text-lg font-bold tracking-tight">Back Office</span>
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
-          {visibleSections.map((section) => (
-            <div key={section.title}>
-              <p className="px-2 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {section.title}
-              </p>
-              <ul className="space-y-0.5">
-                {section.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      className={({ isActive }) =>
-                        `block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                          isActive
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                        }`
-                      }
-                    >
-                      {item.label}
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
-        <div className="px-3 py-4 border-t border-gray-700">
-          <p className="px-2 text-xs text-gray-400 mb-2 truncate">{useAuthStore.getState().username}</p>
+      <aside className={`${collapsed ? 'w-12' : 'w-56'} bg-gray-900 text-white flex flex-col flex-shrink-0 transition-all duration-200 overflow-hidden`}>
+        <div className={`px-3 py-5 border-b border-gray-700 flex items-center flex-shrink-0 ${collapsed ? 'justify-center' : 'justify-between'}`}>
+          {!collapsed && <span className="text-lg font-bold tracking-tight whitespace-nowrap">Back Office</span>}
           <button
-            onClick={handleLogout}
-            className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expand menu' : 'Collapse menu'}
+            className="text-gray-400 hover:text-white transition-colors text-lg leading-none flex-shrink-0"
           >
-            Sign Out
+            {collapsed ? '›' : '‹'}
           </button>
         </div>
+        {!collapsed && (
+          <>
+            <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+              {visibleSections.map((section) => (
+                <div key={section.title}>
+                  <p className="px-2 mb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    {section.title}
+                  </p>
+                  <ul className="space-y-0.5">
+                    {section.items.map((item) => (
+                      <li key={item.to}>
+                        <NavLink
+                          to={item.to}
+                          className={({ isActive }) =>
+                            `block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                              isActive
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                            }`
+                          }
+                        >
+                          {item.label}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </nav>
+            <div className="px-3 py-4 border-t border-gray-700">
+              <p className="px-2 text-xs text-gray-400 mb-2 truncate">{useAuthStore.getState().username}</p>
+              <button
+                onClick={handleLogout}
+                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+              >
+                Sign Out
+              </button>
+            </div>
+          </>
+        )}
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
