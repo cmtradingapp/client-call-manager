@@ -17,6 +17,7 @@ from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incre
 from app.routers.retention import router as retention_router
 from app.routers.retention_tasks import router as retention_tasks_router
 from app.routers.client_scoring import router as client_scoring_router
+from app.routers.crm import router as crm_router
 from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
 from app.routers.users_admin import router as users_router
@@ -263,6 +264,7 @@ app.include_router(etl_router, prefix="/api")
 app.include_router(retention_router, prefix="/api")
 app.include_router(retention_tasks_router, prefix="/api")
 app.include_router(client_scoring_router, prefix="/api")
+app.include_router(crm_router, prefix="/api")
 
 
 @app.get("/health")

@@ -187,6 +187,46 @@ function BoolSelect({ label, value, onChange }: { label: string; value: BoolFilt
   );
 }
 
+// Retention statuses from CRM (status_key -> display value)
+const RETENTION_STATUSES: { key: number; label: string }[] = [
+  { key: 0, label: 'New' },
+  { key: 1, label: 'CallBack' },
+  { key: 2, label: 'Invalid' },
+  { key: 3, label: 'No Answer' },
+  { key: 4, label: 'Reassign - Has Potential' },
+  { key: 5, label: 'Reassign - No Potential' },
+  { key: 6, label: 'Not Interested' },
+  { key: 7, label: 'Under 18' },
+  { key: 8, label: 'Wrong Language' },
+  { key: 9, label: 'Deposited With Me' },
+  { key: 10, label: 'Sessions Only' },
+  { key: 11, label: 'Recovery' },
+  { key: 12, label: 'Depositor' },
+  { key: 13, label: 'Received Withdrawal' },
+  { key: 14, label: 'Never Answers' },
+  { key: 15, label: 'AvailableInNinja' },
+  { key: 17, label: 'Recycle' },
+  { key: 18, label: 'Never answer' },
+  { key: 19, label: 'Potential' },
+  { key: 20, label: 'Appointment' },
+  { key: 21, label: 'High Potential' },
+  { key: 22, label: 'Reshuffle' },
+  { key: 23, label: 'Call Again' },
+  { key: 24, label: 'Low potential' },
+  { key: 25, label: 'Auto Trading' },
+  { key: 26, label: 'No Balance' },
+  { key: 27, label: 'IB' },
+  { key: 28, label: 'Reassigned' },
+  { key: 29, label: 'Language barrier' },
+  { key: 30, label: 'Potential IB' },
+  { key: 32, label: 'Wrong Details' },
+  { key: 33, label: "Don't want assistance" },
+  { key: 34, label: 'Terminated/Complain/Legal' },
+  { key: 35, label: 'Remove From my Portfolio' },
+  { key: 36, label: 'Daily Trading with me' },
+  { key: 37, label: 'A+ Client' },
+];
+
 const TASK_COLOR_STYLES: Record<string, { bg: string; text: string }> = {
   red:    { bg: 'bg-red-100',    text: 'text-red-700' },
   orange: { bg: 'bg-orange-100', text: 'text-orange-700' },
@@ -213,6 +253,117 @@ function fmtNum(v: number, decimals = 2) {
   return v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
+function ClientActionsModal({
+  client,
+  onClose,
+}: {
+  client: RetentionClient;
+  onClose: () => void;
+}) {
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleSubmit = async () => {
+    if (!selectedStatus) return;
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      await api.patch(`/clients/${client.accountid}/retention-status`, {
+        status_key: Number(selectedStatus),
+      });
+      const statusLabel = RETENTION_STATUSES.find((s) => s.key === Number(selectedStatus))?.label ?? selectedStatus;
+      setFeedback({ type: 'success', message: `Retention status updated to "${statusLabel}"` });
+    } catch (err: any) {
+      const detail = err.response?.data?.detail || 'Failed to update retention status';
+      setFeedback({ type: 'error', message: detail });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Client Actions</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Account: {client.accountid}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            title="Close"
+          >
+            x
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {/* Action: Change Retention Status */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Change Retention Status
+            </label>
+            <select
+              value={selectedStatus}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setFeedback(null);
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              disabled={submitting}
+            >
+              <option value="">-- Select Status --</option>
+              {RETENTION_STATUSES.map((s) => (
+                <option key={s.key} value={String(s.key)}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Feedback */}
+          {feedback && (
+            <div
+              className={`px-4 py-3 rounded-md text-sm ${
+                feedback.type === 'success'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}
+            >
+              {feedback.message}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+            disabled={submitting}
+          >
+            Close
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!selectedStatus || submitting}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Updating...' : 'Update Status'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RetentionPage() {
   const [data, setData] = useState<{ total: number; clients: RetentionClient[] } | null>(null);
   const [page, setPage] = useState(1);
@@ -226,6 +377,7 @@ export function RetentionPage() {
   const [activityDays, setActivityDays] = useState('35');
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [taskList, setTaskList] = useState<{ id: number; name: string }[]>([]);
+  const [selectedClient, setSelectedClient] = useState<RetentionClient | null>(null);
 
   useEffect(() => {
     api.get('/retention/agents').then((r) => setAgents(r.data)).catch(() => {});
@@ -478,7 +630,7 @@ export function RetentionPage() {
                 <tr><td colSpan={20} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
-                  <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50">
+                  <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => setSelectedClient(c)}>
                     <td className="px-4 py-3 text-sm font-medium">
                       <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
                     </td>
@@ -523,6 +675,14 @@ export function RetentionPage() {
           </table>
         </div>
       </div>
+
+      {/* Client Actions Modal (triggered by double-click) */}
+      {selectedClient && (
+        <ClientActionsModal
+          client={selectedClient}
+          onClose={() => setSelectedClient(null)}
+        />
+      )}
     </div>
   );
 }
