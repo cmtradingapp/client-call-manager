@@ -281,6 +281,19 @@ function NoteIcon({ className }: { className?: string }) {
   );
 }
 
+function friendlyError(err: any, fallback: string): string {
+  const status = err.response?.status;
+  const detail = err.response?.data?.detail;
+  if (detail) return detail;
+  switch (status) {
+    case 400: return 'Invalid request. Please check your input and try again.';
+    case 404: return 'Client not found in CRM. Please verify the account ID.';
+    case 502: return 'CRM returned an unexpected error. Please contact an administrator.';
+    case 503: return 'CRM service is temporarily unavailable. Please try again later.';
+    default: return fallback;
+  }
+}
+
 function ClientActionsModal({
   client,
   onClose,
@@ -316,8 +329,7 @@ function ClientActionsModal({
       const statusLabel = RETENTION_STATUSES.find((s) => s.key === Number(selectedStatus))?.label ?? selectedStatus;
       setStatusFeedback({ type: 'success', message: `Retention status updated to "${statusLabel}"` });
     } catch (err: any) {
-      const detail = err.response?.data?.detail || 'Failed to update retention status';
-      setStatusFeedback({ type: 'error', message: detail });
+      setStatusFeedback({ type: 'error', message: friendlyError(err, 'Failed to update retention status') });
     } finally {
       setStatusSubmitting(false);
     }
@@ -332,8 +344,7 @@ function ClientActionsModal({
       setNoteFeedback({ type: 'success', message: 'Note added successfully' });
       setNoteText('');
     } catch (err: any) {
-      const detail = err.response?.data?.detail || 'Failed to add note';
-      setNoteFeedback({ type: 'error', message: detail });
+      setNoteFeedback({ type: 'error', message: friendlyError(err, 'Failed to add note') });
     } finally {
       setNoteSubmitting(false);
     }
@@ -344,7 +355,7 @@ function ClientActionsModal({
     setWaFeedback(null);
     try {
       const res = await api.get(`/clients/${client.accountid}/crm-user`);
-      const phone = res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
+      const phone = res.data?.fullTelephone || res.data?.telephone || res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
       if (!phone) {
         setWaFeedback({ type: 'error', message: 'No phone number found for this client' });
         return;
@@ -354,8 +365,7 @@ function ClientActionsModal({
       window.open(waUrl, '_blank');
       setWaFeedback({ type: 'success', message: 'WhatsApp tab opened' });
     } catch (err: any) {
-      const detail = err.response?.data?.detail || 'Failed to fetch client phone number';
-      setWaFeedback({ type: 'error', message: detail });
+      setWaFeedback({ type: 'error', message: friendlyError(err, 'Failed to fetch client phone number') });
     } finally {
       setWaLoading(false);
     }
