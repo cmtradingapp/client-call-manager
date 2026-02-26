@@ -88,6 +88,8 @@ async def get_retention_clients(
     last_trade_to: str = Query(""),
     # agent filter
     assigned_to: str = Query(""),
+    # task filter
+    task_id: int | None = Query(None),
     # boolean filters
     active: str = Query(""),
     active_ftd: str = Query(""),
@@ -196,6 +198,19 @@ async def get_retention_clients(
             where.append(f"({_MV_ACTIVE_FTD})")
         elif active_ftd == "false":
             where.append(f"NOT ({_MV_ACTIVE_FTD})")
+
+        # Task filter — inject task conditions into the main WHERE clause
+        if task_id is not None:
+            import json as _json
+            from sqlalchemy import select as _select
+            from app.models.retention_task import RetentionTask
+            from app.routers.retention_tasks import _build_task_where
+            _task = await db.get(RetentionTask, task_id)
+            if _task is None:
+                raise HTTPException(status_code=404, detail="Task not found")
+            _t_where, _t_params = _build_task_where(_json.loads(_task.conditions))
+            where.extend(_t_where[1:])  # skip the first clause (client_qualification_date IS NOT NULL) — already in main where
+            params.update(_t_params)
 
         where_clause = " AND ".join(where)
 

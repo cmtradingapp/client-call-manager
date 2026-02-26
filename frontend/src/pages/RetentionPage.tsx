@@ -81,6 +81,7 @@ interface Filters {
   equity_op: NumOp;
   equity_val: string;
   assigned_to: string;
+  task_id: string;
   active: BoolFilter;
   active_ftd: BoolFilter;
 }
@@ -111,6 +112,7 @@ const EMPTY_FILTERS: Filters = {
   equity_op: '',
   equity_val: '',
   assigned_to: '',
+  task_id: '',
   active: '',
   active_ftd: '',
 };
@@ -131,6 +133,7 @@ function countActive(f: Filters) {
     f.credit_op && f.credit_val,
     f.equity_op && f.equity_val,
     f.assigned_to,
+    f.task_id,
     f.active,
     f.active_ftd,
   ].filter(Boolean).length;
@@ -205,9 +208,11 @@ export function RetentionPage() {
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [activityDays, setActivityDays] = useState('35');
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+  const [taskList, setTaskList] = useState<{ id: number; name: string }[]>([]);
 
   useEffect(() => {
     api.get('/retention/agents').then((r) => setAgents(r.data)).catch(() => {});
+    api.get('/retention/tasks').then((r) => setTaskList(r.data)).catch(() => {});
   }, []);
 
   const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters, actDays: string) => {
@@ -232,6 +237,7 @@ export function RetentionPage() {
           credit_op: f.credit_op, credit_val: f.credit_val || undefined,
           equity_op: f.equity_op, equity_val: f.equity_val || undefined,
           assigned_to: f.assigned_to || undefined,
+          task_id: f.task_id || undefined,
           active: f.active, active_ftd: f.active_ftd,
           activity_days: actDays || 35,
         },
@@ -367,6 +373,20 @@ export function RetentionPage() {
                   <option value="">All agents</option>
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Task filter */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Task</label>
+                <select
+                  value={draft.task_id}
+                  onChange={(e) => setField('task_id', e.target.value)}
+                  className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-full"
+                >
+                  <option value="">All clients</option>
+                  {taskList.map((t) => (
+                    <option key={t.id} value={String(t.id)}>{t.name}</option>
                   ))}
                 </select>
               </div>
