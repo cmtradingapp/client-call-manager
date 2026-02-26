@@ -11,6 +11,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RetentionPage } from './pages/RetentionPage';
 import { ETLPage } from './pages/ETLPage';
 import { RetentionTasksPage } from './pages/RetentionTasksPage';
+import { ClientScoringPage } from './pages/ClientScoringPage';
 import { RolesPage } from './pages/admin/RolesPage';
 import { UsersPage } from './pages/admin/UsersPage';
 
@@ -35,6 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/retention', label: 'Retention Manager', permission: 'retention' },
       { to: '/retention-tasks', label: 'Retention Tasks', permission: 'retention-tasks' },
+      { to: '/client-scoring', label: 'Client Scoring', permission: 'client-scoring' },
     ],
   },
   {
@@ -55,6 +57,7 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
   { path: '/batch-call', title: 'Batch Call from File', element: <BatchCallPage />, permission: 'batch-call' },
   { path: '/retention', title: 'Retention Manager', element: <RetentionPage />, permission: 'retention' },
   { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage />, permission: 'retention-tasks' },
+  { path: '/client-scoring', title: 'Client Scoring', element: <ClientScoringPage />, permission: 'client-scoring' },
   { path: '/admin/users', title: 'Users', element: <UsersPage />, adminOnly: true },
   { path: '/admin/roles', title: 'Roles', element: <RolesPage />, adminOnly: true },
   { path: '/admin/etl', title: 'Data Sync', element: <ETLPage />, adminOnly: true },

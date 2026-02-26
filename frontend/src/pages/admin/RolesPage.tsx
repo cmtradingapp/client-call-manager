@@ -16,6 +16,7 @@ const PAGE_LABELS: Record<string, string> = {
   'batch-call': 'Batch Call from File',
   'retention': 'Retention Manager',
   'retention-tasks': 'Retention Tasks',
+  'client-scoring': 'Client Scoring',
 };
 
 interface Role {

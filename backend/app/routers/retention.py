@@ -325,6 +325,43 @@ async def get_retention_clients(
         except Exception as tasks_err:
             logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
 
+        # Compute client scores based on scoring_rules
+        from sqlalchemy import select as _select2
+        from app.models.scoring_rule import ScoringRule
+        from app.routers.client_scoring import SCORING_COL_SQL, SCORING_OP_MAP
+        score_map: dict = {str(r["accountid"]): 0 for r in rows}
+        try:
+            all_rules_result = await db.execute(
+                _select2(ScoringRule).order_by(ScoringRule.id)
+            )
+            all_rules = all_rules_result.scalars().all()
+            page_aids = [str(r["accountid"]) for r in rows]
+            if all_rules and page_aids:
+                for rule in all_rules:
+                    sql_expr = SCORING_COL_SQL.get(rule.field)
+                    sql_op = SCORING_OP_MAP.get(rule.operator)
+                    if not sql_expr or not sql_op:
+                        continue
+                    try:
+                        cast_value: Any = float(rule.value)
+                    except (ValueError, TypeError):
+                        cast_value = rule.value
+                    rule_where = f"m.client_qualification_date IS NOT NULL AND m.accountid = ANY(:_sr_aids)"
+                    if rule.field == "days_from_last_trade":
+                        rule_where += f" AND m.last_close_time IS NOT NULL AND {sql_expr} {sql_op} :_sr_val"
+                    else:
+                        rule_where += f" AND {sql_expr} {sql_op} :_sr_val"
+                    sr_result = await db.execute(
+                        text(f"SELECT m.accountid FROM retention_mv m WHERE {rule_where}"),
+                        {"_sr_aids": page_aids, "_sr_val": cast_value},
+                    )
+                    for sr_row in sr_result.fetchall():
+                        aid = str(sr_row[0])
+                        if aid in score_map:
+                            score_map[aid] += rule.score
+        except Exception as score_err:
+            logger.warning("Could not compute client scores: %s", score_err)
+
         return {
             "total": total,
             "page": page,
@@ -349,6 +386,7 @@ async def get_retention_clients(
                     "assigned_to": r["assigned_to"],
                     "agent_name": agent_map.get(str(r["assigned_to"])) if r["assigned_to"] else None,
                     "tasks": tasks_map.get(str(r["accountid"]), []),
+                    "score": score_map.get(str(r["accountid"]), 0),
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
                     **{col: r[col] for col in _extra_col_names},
