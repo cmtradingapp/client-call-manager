@@ -21,14 +21,27 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 async def seed_admin(session: AsyncSession) -> None:
-    # Seed admin role
+    # Seed admin role — always sync permissions to current ALL_PAGES
     result = await session.execute(select(Role).where(Role.name == "admin"))
     admin_role = result.scalar_one_or_none()
     if not admin_role:
-        admin_role = Role(name="admin", permissions=ALL_PAGES)
+        admin_role = Role(name="admin", permissions=list(ALL_PAGES))
         session.add(admin_role)
         await session.flush()
         logger.info("Admin role created")
+    elif sorted(admin_role.permissions) != sorted(ALL_PAGES):
+        admin_role.permissions = list(ALL_PAGES)
+        logger.info("Admin role permissions synced to ALL_PAGES: %s", ALL_PAGES)
+
+    # Clean stale permissions from all non-admin roles (remove pages no longer in ALL_PAGES)
+    all_roles_result = await session.execute(select(Role).where(Role.name != "admin"))
+    valid_pages = set(ALL_PAGES)
+    for role in all_roles_result.scalars().all():
+        cleaned = [p for p in role.permissions if p in valid_pages]
+        if len(cleaned) != len(role.permissions):
+            removed = set(role.permissions) - valid_pages
+            role.permissions = cleaned
+            logger.info("Cleaned stale permissions %s from role '%s'", removed, role.name)
 
     # Seed admin user
     result = await session.execute(select(User).where(User.username == "admin"))

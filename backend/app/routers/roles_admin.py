@@ -23,7 +23,7 @@ async def list_roles(db: AsyncSession = Depends(get_db), _=Depends(require_admin
         {
             "id": r.id,
             "name": r.name,
-            "permissions": r.permissions,
+            "permissions": list(ALL_PAGES) if r.name == "admin" else r.permissions,
             "created_at": r.created_at.isoformat(),
         }
         for r in roles
