@@ -13,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, refresh_retention_mv, rebuild_retention_mv, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, hourly_sync_extensions, refresh_retention_mv, rebuild_retention_mv, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_tasks import router as retention_tasks_router
 from app.routers.client_scoring import router as client_scoring_router
@@ -153,6 +153,18 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("vtiger_campaigns table recreated with correct schema")
+    # Migrate: ensure extensions table exists
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS extensions ("
+            "id SERIAL PRIMARY KEY, "
+            "name TEXT, extension VARCHAR(50) UNIQUE, "
+            "user_name TEXT, agent_name TEXT, manager TEXT, "
+            "position TEXT, office TEXT, email TEXT, manager_email TEXT, "
+            "synced_at TIMESTAMPTZ DEFAULT NOW())"
+        ))
+        await session.commit()
+    logger.info("extensions table migration applied")
     # Migrate: ensure integrations table exists
     async with AsyncSessionLocal() as session:
         await session.execute(_text(
@@ -238,6 +250,13 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     scheduler.add_job(
+        hourly_sync_extensions,
+        "interval",
+        hours=1,
+        args=[AsyncSessionLocal],
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    scheduler.add_job(
         daily_full_sync_all,
         "cron",
         hour=0,
@@ -249,7 +268,7 @@ async def lifespan(app: FastAPI):
         minutes=3,
     )
     scheduler.start()
-    logger.info("ETL scheduler started — incremental sync every 30 min, vtiger hourly full refresh, daily full sync at midnight")
+    logger.info("ETL scheduler started — incremental sync every 30 min, vtiger/extensions hourly full refresh, daily full sync at midnight")
 
     yield
 
