@@ -873,6 +873,7 @@ interface ColDef {
   align?: 'left' | 'right';
   minWidth?: string;
   filterType: ColFilterType;
+  filterParamKey?: string; // override the backend param prefix when it differs from col.key
   renderHeader?: (props: { colFilters: ColFilters; setColFilters: React.Dispatch<React.SetStateAction<ColFilters>>; sortBy: SortCol; sortDir: 'asc' | 'desc' }) => ReactNode;
   renderCell: (c: RetentionClient) => ReactNode;
 }
@@ -913,6 +914,7 @@ const DEFAULT_COLS: ColDef[] = [
     align: 'left',
     minWidth: '120px',
     filterType: 'text',
+    filterParamKey: 'agent',
     renderCell: (c) => <span className="text-sm text-gray-700">{c.agent_name ?? '—'}</span>,
   },
   {
@@ -938,6 +940,7 @@ const DEFAULT_COLS: ColDef[] = [
     align: 'left',
     minWidth: '130px',
     filterType: 'date',
+    filterParamKey: 'reg_date',
     renderCell: (c) => <span className="text-sm text-gray-700">{formatDate(c.client_qualification_date)}</span>,
   },
   {
@@ -975,6 +978,7 @@ const DEFAULT_COLS: ColDef[] = [
     align: 'left',
     minWidth: '130px',
     filterType: 'date',
+    filterParamKey: 'last_call',
     renderCell: (c) => <span className="text-sm text-gray-700">{formatDate(c.last_trade_date)}</span>,
   },
   {
@@ -1220,20 +1224,22 @@ export function RetentionPage() {
     const colFilterParams: Record<string, string> = {};
     for (const [key, filter] of Object.entries(cf)) {
       if (!filter) continue;
+      // Use filterParamKey override if defined (handles mismatches like agent_name→agent)
+      const paramKey = COL_DEF_MAP[key]?.filterParamKey || key;
       if (filter.type === 'text' && filter.value) {
-        colFilterParams[`filter_${key}`] = filter.value;
+        colFilterParams[`filter_${paramKey}`] = filter.value;
       } else if (filter.type === 'numeric' && filter.val) {
-        colFilterParams[`filter_${key}_op`] = filter.op;
-        colFilterParams[`filter_${key}_val`] = filter.val;
+        colFilterParams[`filter_${paramKey}_op`] = filter.op;
+        colFilterParams[`filter_${paramKey}_val`] = filter.val;
         if (filter.op === 'between' && filter.val2) {
-          colFilterParams[`filter_${key}_val2`] = filter.val2;
+          colFilterParams[`filter_${paramKey}_val2`] = filter.val2;
         }
       } else if (filter.type === 'date') {
         if (filter.preset && filter.preset !== 'custom') {
-          colFilterParams[`filter_${key}_preset`] = filter.preset;
+          colFilterParams[`filter_${paramKey}_preset`] = filter.preset;
         } else if (filter.from) {
-          colFilterParams[`filter_${key}_from`] = filter.from;
-          if (filter.to) colFilterParams[`filter_${key}_to`] = filter.to;
+          colFilterParams[`filter_${paramKey}_from`] = filter.from;
+          if (filter.to) colFilterParams[`filter_${paramKey}_to`] = filter.to;
         }
       }
     }
