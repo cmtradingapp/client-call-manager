@@ -374,10 +374,7 @@ async def initiate_call(
         )
         return {
             "success": True,
-            "message": f"Call initiated from extension {extension} to {destination}",
-            "extension": extension,
-            "destination": destination,
-            "squaretalk_response": result,
+            "message": "Call initiated successfully",
         }
     except HTTPException:
         raise
