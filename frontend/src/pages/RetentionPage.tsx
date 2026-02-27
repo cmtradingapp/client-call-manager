@@ -29,7 +29,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
+type SortCol = 'accountid' | 'full_name' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -40,6 +40,7 @@ interface TaskInfo {
 
 interface RetentionClient {
   accountid: string;
+  full_name: string;
   client_qualification_date: string | null;
   days_in_retention: number | null;
   trade_count: number;
@@ -932,6 +933,7 @@ export function RetentionPage() {
             <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClass} onClick={() => handleSort('full_name')}>Full Name <SortIcon col="full_name" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tasks</th>
                 <th className={thClassRight} onClick={() => handleSort('score')}>Score <SortIcon col="score" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('agent_name')}>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></th>
@@ -959,15 +961,15 @@ export function RetentionPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={25} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || clients.length === 0 ? (
-                <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={25} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 <>
                   {/* Spacer for virtual scroll — pushes visible rows to correct offset */}
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: rowVirtualizer.getVirtualItems()[0].start }}>
-                      <td colSpan={24} style={{ padding: 0, border: 'none' }} />
+                      <td colSpan={25} style={{ padding: 0, border: 'none' }} />
                     </tr>
                   )}
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -983,6 +985,7 @@ export function RetentionPage() {
                         <td className="px-4 py-3 text-sm font-medium">
                           <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
                         </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{c.full_name || '\u2014'}</td>
                         <td className="px-4 py-3">
                           {c.tasks.length === 0 ? (
                             <span className="text-xs text-gray-400">—</span>
@@ -1027,7 +1030,7 @@ export function RetentionPage() {
                   {/* Bottom spacer for virtual scroll */}
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end) }}>
-                      <td colSpan={24} style={{ padding: 0, border: 'none' }} />
+                      <td colSpan={25} style={{ padding: 0, border: 'none' }} />
                     </tr>
                   )}
                 </>
