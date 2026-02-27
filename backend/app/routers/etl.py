@@ -681,6 +681,13 @@ async def daily_full_sync_all() -> None:
         else:
             logger.info("Daily sync: dealio_users already running, skipped")
 
+    # extensions
+    if not await _is_running("extensions"):
+        log_id = await _create_log("extensions_full")
+        await _run_full_sync_extensions(log_id)
+    else:
+        logger.info("Daily sync: extensions already running, skipped")
+
     logger.info("Daily full sync complete")
     await refresh_retention_mv()
 
@@ -797,6 +804,61 @@ async def _run_full_sync_vtiger_campaigns(log_id: int) -> None:
     await _mssql_full_sync(log_id, "vtiger_campaigns_full", _VTIGER_CAMPAIGNS_SELECT, "vtiger_campaigns", _VTIGER_CAMPAIGNS_UPSERT, _vtiger_campaigns_map)
 
 
+# ---------------------------------------------------------------------------
+# extensions (report.Extension_new) — hourly full-refresh
+# ---------------------------------------------------------------------------
+
+_EXTENSIONS_SELECT = (
+    "SELECT [Name], [Extension], [User_name], [Agent_name], [Manager], [Position], [Office], [Email], [ManagerEmail]"
+    " FROM [report].[Extension_new]"
+)
+
+_EXTENSIONS_UPSERT = (
+    "INSERT INTO extensions"
+    " (name, extension, user_name, agent_name, manager, position, office, email, manager_email, synced_at)"
+    " VALUES"
+    " (:name, :extension, :user_name, :agent_name, :manager, :position, :office, :email, :manager_email, NOW())"
+    " ON CONFLICT (extension) DO UPDATE SET"
+    " name = EXCLUDED.name, user_name = EXCLUDED.user_name, agent_name = EXCLUDED.agent_name,"
+    " manager = EXCLUDED.manager, position = EXCLUDED.position, office = EXCLUDED.office,"
+    " email = EXCLUDED.email, manager_email = EXCLUDED.manager_email, synced_at = NOW()"
+)
+
+_extensions_map = lambda r: {  # noqa: E731
+    "name": r["Name"],
+    "extension": str(r["Extension"]) if r["Extension"] is not None else None,
+    "user_name": r["User_name"],
+    "agent_name": r["Agent_name"],
+    "manager": r["Manager"],
+    "position": r["Position"],
+    "office": r["Office"],
+    "email": r["Email"],
+    "manager_email": r["ManagerEmail"],
+}
+
+
+async def _run_full_sync_extensions(log_id: int) -> None:
+    await _mssql_full_sync(log_id, "extensions_full", _EXTENSIONS_SELECT, "extensions", _EXTENSIONS_UPSERT, _extensions_map)
+
+
+async def hourly_sync_extensions(session_factory: async_sessionmaker) -> None:
+    """Hourly full truncate+reload of extensions."""
+    if await _is_running("extensions"):
+        logger.info("ETL extensions: skipping — sync already in progress")
+        return
+    log_id: int | None = None
+    try:
+        async with session_factory() as db:
+            log = EtlSyncLog(sync_type="extensions_full", status="running")
+            db.add(log)
+            await db.commit()
+            await db.refresh(log)
+            log_id = log.id
+        await _run_full_sync_extensions(log_id)
+    except Exception as e:
+        logger.error("Hourly extensions sync failed: %s", e)
+        if log_id:
+            await _update_log(log_id, "error", error=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -1136,6 +1198,22 @@ async def sync_vtiger_campaigns(
     return {"status": "started", "log_id": log.id}
 
 
+@router.post("/etl/sync-extensions")
+async def sync_extensions(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("extensions"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="extensions_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_extensions, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
 @router.get("/etl/sync-status")
 async def sync_status(
     db: AsyncSession = Depends(get_db),
@@ -1153,6 +1231,7 @@ async def sync_status(
     dealio_users_count = (await db.execute(text("SELECT COUNT(*) FROM dealio_users"))).scalar() or 0
     vtiger_users_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_users"))).scalar() or 0
     vtiger_campaigns_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_campaigns"))).scalar() or 0
+    extensions_count = (await db.execute(text("SELECT COUNT(*) FROM extensions"))).scalar() or 0
 
     def _last_row(row) -> dict | None:
         if row is None:
@@ -1166,6 +1245,7 @@ async def sync_status(
     dealio_users_last = _last_row((await db.execute(text("SELECT login, lastupdate FROM dealio_users WHERE lastupdate <= NOW() ORDER BY lastupdate DESC NULLS LAST LIMIT 1"))).first())
     vtiger_users_last = _last_row((await db.execute(text("SELECT id, NULL FROM vtiger_users LIMIT 1"))).first())
     vtiger_campaigns_last = _last_row((await db.execute(text("SELECT crmid, NULL FROM vtiger_campaigns LIMIT 1"))).first())
+    extensions_last = _last_row((await db.execute(text("SELECT extension, synced_at FROM extensions ORDER BY synced_at DESC NULLS LAST LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,
@@ -1175,6 +1255,7 @@ async def sync_status(
         "dealio_users_row_count": dealio_users_count,
         "vtiger_users_row_count": vtiger_users_count,
         "vtiger_campaigns_row_count": vtiger_campaigns_count,
+        "extensions_row_count": extensions_count,
         "trades_last": trades_last,
         "ant_acc_last": ant_acc_last,
         "vta_last": vta_last,
@@ -1182,6 +1263,7 @@ async def sync_status(
         "dealio_users_last": dealio_users_last,
         "vtiger_users_last": vtiger_users_last,
         "vtiger_campaigns_last": vtiger_campaigns_last,
+        "extensions_last": extensions_last,
         "logs": [
             {
                 "id": r["id"],
