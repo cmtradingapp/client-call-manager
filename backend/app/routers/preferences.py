@@ -25,7 +25,7 @@ class ColumnOrderResponse(BaseModel):
 
 
 class ColumnOrderBody(BaseModel):
-    column_order: List[str]
+    column_order: Optional[List[str]]
 
 
 # ---------------------------------------------------------------------------
