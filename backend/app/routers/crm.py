@@ -4,13 +4,12 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import get_current_user
 from app.config import settings
 from app.models.extension import Extension
-from app.models.user import User
 from app.pg_database import get_db
 
 logger = logging.getLogger(__name__)
@@ -257,23 +256,51 @@ async def get_crm_user(
 SQUARETALK_BASE_URL = "https://cmtrading.squaretalk.com/Integration"
 
 
-async def _get_user_extension(user: User, db: AsyncSession) -> str:
-    """Look up the agent's SquareTalk extension by matching user email to extensions table."""
-    if not user.email:
+async def _get_user_extension(account_id: str, db: AsyncSession) -> str:
+    """Look up the assigned agent's SquareTalk extension for a given client account.
+
+    Resolution chain:
+      1. ant_acc (accountid) -> assigned_to  (the agent ID assigned to this client)
+      2. vtiger_users (id = assigned_to) -> email  (the agent's email)
+      3. extensions (email) -> extension  (the SquareTalk extension number)
+    """
+    # Step 1: get assigned_to from ant_acc
+    row = await db.execute(
+        text("SELECT assigned_to FROM ant_acc WHERE accountid = :account_id"),
+        {"account_id": account_id},
+    )
+    assigned_to = row.scalar_one_or_none()
+
+    if not assigned_to:
         raise HTTPException(
-            status_code=400,
-            detail="Your user account has no email address configured. Please contact an administrator.",
+            status_code=404,
+            detail="No assigned agent found for this client. "
+                   "Please verify the account ID and that an agent is assigned.",
         )
 
+    # Step 2: get email from vtiger_users
+    row = await db.execute(
+        text("SELECT email FROM vtiger_users WHERE id = :assigned_to"),
+        {"assigned_to": assigned_to},
+    )
+    agent_email = row.scalar_one_or_none()
+
+    if not agent_email:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Assigned agent (ID {assigned_to}) not found in vtiger_users or has no email.",
+        )
+
+    # Step 3: get extension from extensions table
     result = await db.execute(
-        select(Extension).where(Extension.email == user.email)
+        select(Extension).where(Extension.email == agent_email)
     )
     ext = result.scalar_one_or_none()
     if not ext or not ext.extension:
         raise HTTPException(
             status_code=404,
-            detail=f"No phone extension found for your account ({user.email}). "
-                   "Please verify your extension is configured in the system.",
+            detail=f"No phone extension found for agent email {agent_email}. "
+                   "Please verify the agent's extension is configured in the system.",
         )
     return ext.extension
 
@@ -321,12 +348,12 @@ async def _get_client_phone(account_id: str, http_client: httpx.AsyncClient) -> 
 async def initiate_call(
     account_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Initiate a SquareTalk call from the agent's extension to the client's phone."""
-    # 1. Resolve agent extension
-    extension = await _get_user_extension(user, db)
+    """Initiate a SquareTalk call from the assigned agent's extension to the client's phone."""
+    # 1. Resolve assigned agent's extension (ant_acc -> vtiger_users -> extensions)
+    extension = await _get_user_extension(account_id, db)
 
     # 2. Fetch client phone from CRM
     http_client = request.app.state.http_client
@@ -341,8 +368,8 @@ async def initiate_call(
     }
 
     logger.info(
-        "SquareTalk call: extension=%s, destination=%s, account=%s, user=%s",
-        extension, destination, account_id, user.email,
+        "SquareTalk call: extension=%s, destination=%s, account=%s",
+        extension, destination, account_id,
     )
 
     try:
