@@ -13,6 +13,7 @@ import { ETLPage } from './pages/ETLPage';
 import { RetentionTasksPage } from './pages/RetentionTasksPage';
 import { ClientScoringPage } from './pages/ClientScoringPage';
 import { ActivityDashboardPage } from './pages/admin/ActivityDashboardPage';
+import { AuditLogPage } from './pages/admin/AuditLogPage';
 import { IntegrationsPage } from './pages/admin/IntegrationsPage';
 import { RolesPage } from './pages/admin/RolesPage';
 import { UsersPage } from './pages/admin/UsersPage';
@@ -50,6 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/admin/etl', label: 'Data Sync' },
       { to: '/admin/integrations', label: 'Integrations & Config' },
       { to: '/admin/activity', label: 'Activity Dashboard' },
+      { to: '/admin/audit-log', label: 'Audit Log' },
     ],
   },
 ];
@@ -67,6 +69,7 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
   { path: '/admin/etl', title: 'Data Sync', element: <ETLPage />, adminOnly: true },
   { path: '/admin/integrations', title: 'Integrations & Configuration', element: <IntegrationsPage />, adminOnly: true },
   { path: '/admin/activity', title: 'Activity Dashboard', element: <ActivityDashboardPage />, adminOnly: true },
+  { path: '/admin/audit-log', title: 'Audit Log', element: <AuditLogPage />, adminOnly: true },
 ];
 
 function ProtectedLayout() {
