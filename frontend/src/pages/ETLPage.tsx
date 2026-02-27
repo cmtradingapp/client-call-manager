@@ -171,6 +171,7 @@ interface StatusData {
   dealio_users_row_count: number;
   vtiger_users_row_count: number;
   vtiger_campaigns_row_count: number;
+  extensions_row_count: number;
   trades_last: LastRecord | null;
   ant_acc_last: LastRecord | null;
   vta_last: LastRecord | null;
@@ -178,6 +179,7 @@ interface StatusData {
   dealio_users_last: LastRecord | null;
   vtiger_users_last: LastRecord | null;
   vtiger_campaigns_last: LastRecord | null;
+  extensions_last: LastRecord | null;
   logs: SyncLog[];
 }
 
@@ -211,6 +213,7 @@ export function ETLPage() {
     { key: 'mtt', label: 'MT Transactions', source: 'report.vtiger_mttransactions', endpoint: '/etl/sync-mtt', count: data?.mtt_row_count ?? null, last: data?.mtt_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },
     { key: 'vtiger_users', label: 'Vtiger Users', source: 'report.vtiger_users', endpoint: '/etl/sync-vtiger-users', count: data?.vtiger_users_row_count ?? null, last: data?.vtiger_users_last ?? null, desc: 'Full reload from MSSQL every hour (truncate + reload). No incremental.' },
     { key: 'vtiger_campaigns', label: 'Vtiger Campaigns', source: 'report.vtiger_campaigns', endpoint: '/etl/sync-vtiger-campaigns', count: data?.vtiger_campaigns_row_count ?? null, last: data?.vtiger_campaigns_last ?? null, desc: 'Full reload from MSSQL every hour (truncate + reload). No incremental.' },
+    { key: 'extensions', label: 'Extensions', source: 'report.Extension_new', endpoint: '/etl/sync-extensions', count: data?.extensions_row_count ?? null, last: data?.extensions_last ?? null, desc: 'Full reload from MSSQL every hour (truncate + reload). No incremental.' },
   ];
 
   return (
