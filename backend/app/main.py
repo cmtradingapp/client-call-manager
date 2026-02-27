@@ -23,6 +23,7 @@ from app.routers.roles_admin import router as roles_router
 from app.routers.users_admin import router as users_router
 from app.routers.integrations_admin import router as integrations_router
 from app.routers.audit_log_admin import router as audit_log_router
+from app.routers.preferences import router as preferences_router
 from app.seed import seed_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -348,6 +349,7 @@ app.include_router(client_scoring_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(audit_log_router, prefix="/api")
+app.include_router(preferences_router, prefix="/api")
 
 
 @app.get("/health")
