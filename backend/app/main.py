@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI):
     logger.info("ant_acc.full_name column migration applied")
     # Recreate vtiger_users with correct schema (drop old schema if columns changed)
     async with AsyncSessionLocal() as session:
-        await session.execute(_text("DROP TABLE IF EXISTS vtiger_users"))
+        await session.execute(_text("DROP TABLE IF EXISTS vtiger_users CASCADE"))
         await session.execute(_text(
             "CREATE TABLE vtiger_users ("
             "id VARCHAR(50) PRIMARY KEY, "
