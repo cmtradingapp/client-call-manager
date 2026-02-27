@@ -312,6 +312,31 @@ function ClientActionsModal({
   // Active tab
   const [activeTab, setActiveTab] = useState<ActionTab>('status');
 
+  // Current retention status (fetched on modal open)
+  const [currentStatusLabel, setCurrentStatusLabel] = useState<string | null>(null);
+  const [currentStatusLoading, setCurrentStatusLoading] = useState(true);
+
+  // Fetch current retention status on modal open
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/clients/${client.accountid}/crm-user`);
+        if (cancelled) return;
+        const statusKey = res.data?.retentionStatus;
+        if (statusKey !== undefined && statusKey !== null) {
+          const match = RETENTION_STATUSES.find((s) => s.key === Number(statusKey));
+          setCurrentStatusLabel(match ? match.label : `Unknown (${statusKey})`);
+        }
+      } catch {
+        // Gracefully ignore — badge simply won't show
+      } finally {
+        if (!cancelled) setCurrentStatusLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [client.accountid]);
+
   // Retention status state
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [statusSubmitting, setStatusSubmitting] = useState(false);
@@ -339,6 +364,7 @@ function ClientActionsModal({
         status_key: Number(selectedStatus),
       });
       const statusLabel = RETENTION_STATUSES.find((s) => s.key === Number(selectedStatus))?.label ?? selectedStatus;
+      setCurrentStatusLabel(statusLabel);
       setStatusFeedback({ type: 'success', message: `Retention status updated to "${statusLabel}"` });
     } catch (err: any) {
       setStatusFeedback({ type: 'error', message: friendlyError(err, 'Failed to update retention status') });
@@ -451,6 +477,26 @@ function ClientActionsModal({
           >
             x
           </button>
+        </div>
+
+        {/* Current retention status badge */}
+        <div className="px-6 pt-3 pb-0 shrink-0">
+          {currentStatusLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Loading status...
+            </div>
+          ) : currentStatusLabel ? (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500">Current Status:</span>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {currentStatusLabel}
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/* Icon tab navigation */}
