@@ -138,6 +138,7 @@ async def get_retention_clients(
     sort_by: str = Query("accountid"),
     sort_dir: str = Query("asc"),
     accountid: str = Query(""),
+    filter_accountid: str = Query(""),  # column header filter variant
     # numeric filters
     trade_count_op: str = Query(""),
     trade_count_val: float | None = Query(None),
@@ -245,9 +246,10 @@ async def get_retention_clients(
         where: list[str] = ["m.client_qualification_date IS NOT NULL"]
         params: dict = {"activity_days": activity_days}
 
-        if accountid:
+        _acct_filter = accountid or filter_accountid
+        if _acct_filter:
             where.append("(m.accountid ILIKE :accountid_pattern OR m.full_name ILIKE :accountid_pattern)")
-            params["accountid_pattern"] = f"%{accountid}%"
+            params["accountid_pattern"] = f"%{_acct_filter}%"
 
         if qual_date_from:
             where.append("m.client_qualification_date >= :qual_date_from")

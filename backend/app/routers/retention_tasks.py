@@ -69,6 +69,10 @@ def _build_task_where(
         op = cond.get("op", "eq")
         value = cond.get("value", "")
 
+        # Skip conditions with no value (prevents SQL type errors in UNION ALL)
+        if column not in ("active", "active_ftd") and str(value).strip() == "":
+            continue
+
         if column == "active":
             if value == "true":
                 where_list.append(f"({_MV_ACTIVE})")
