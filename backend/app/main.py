@@ -117,6 +117,17 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("scoring_rules table migration applied")
+    # Migrate: ensure client_scores table exists (CLAUD-24 hotfix)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("""
+            CREATE TABLE IF NOT EXISTS client_scores (
+                accountid VARCHAR PRIMARY KEY,
+                score INTEGER NOT NULL DEFAULT 0,
+                computed_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        await session.commit()
+    logger.info("client_scores table migration applied")
     # Widen sync_type column if still VARCHAR(20) — dealio_users_incremental is 24 chars
     async with AsyncSessionLocal() as session:
         await session.execute(_text("ALTER TABLE etl_sync_log ALTER COLUMN sync_type TYPE VARCHAR(50)"))

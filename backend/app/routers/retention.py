@@ -41,7 +41,7 @@ _SORT_COLS = {
     "accountid":            "m.accountid",
     "full_name":            "m.full_name",
     "assigned_to":          "m.assigned_to",
-    "agent_name":           "m.assigned_to",
+    "agent_name":           "m.agent_name",
 
     # --- date / timestamp columns (already correct types in MV) ---
     "client_qualification_date": "m.client_qualification_date",
@@ -77,9 +77,8 @@ _SORT_COLS = {
     # --- text-stored numeric column — explicit cast required ---
     "sales_client_potential": "NULLIF(TRIM(m.sales_client_potential), '')::NUMERIC",
 
-    # --- score: computed in Python post-query, cannot sort server-side ---
-    # Falls back to accountid so results are at least deterministic.
-    "score":                "m.accountid",
+    # --- score: pre-computed in client_scores table, joined at query time ---
+    "score":                "COALESCE(cs.score, 0)",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -342,16 +341,8 @@ async def get_retention_clients(
             params["filter_status_pattern"] = f"%{filter_status}%"
 
         if filter_agent:
-            # Agent names are stored in vtiger_users (first_name + last_name).
-            # Use a correlated sub-select so we can do ILIKE on the concatenated name
-            # without pulling the whole users table into every row.
-            where.append(
-                "EXISTS ("
-                "SELECT 1 FROM vtiger_users vu"
-                " WHERE vu.id = m.assigned_to"
-                " AND TRIM(CONCAT(vu.first_name, ' ', vu.last_name)) ILIKE :filter_agent_pattern"
-                ")"
-            )
+            # agent_name is now pre-computed in retention_mv — simple ILIKE on the column.
+            where.append("m.agent_name ILIKE :filter_agent_pattern")
             params["filter_agent_pattern"] = f"%{filter_agent}%"
 
         # -----------------------------------------------------------------------
@@ -383,14 +374,22 @@ async def get_retention_clients(
                 if _op == "between":
                     params[_p2] = _val2
 
-        # score filter: score is computed in Python post-query; server-side filtering
-        # is not possible. Log a warning and skip gracefully.
-        if filter_score_op and filter_score_val is not None:
-            logger.warning(
-                "filter_score_* params were supplied but score is computed in Python "
-                "after the DB query — server-side score filtering is not supported and "
-                "will be ignored. Apply score filtering on the frontend."
-            )
+        # score filter: score is now stored in client_scores (joined as cs) — apply server-side.
+        if filter_score_op and filter_score_op in _VALID_OPS and filter_score_val is not None:
+            if filter_score_op == "between" and filter_score_val2 is None:
+                pass  # skip incomplete between filter
+            else:
+                _score_cond = _num_cond(
+                    filter_score_op,
+                    "COALESCE(cs.score, 0)",
+                    "filter_score_val",
+                    "filter_score_val2" if filter_score_op == "between" else None,
+                )
+                if _score_cond:
+                    where.append(_score_cond)
+                    params["filter_score_val"] = filter_score_val
+                    if filter_score_op == "between":
+                        params["filter_score_val2"] = filter_score_val2
 
         # -----------------------------------------------------------------------
         # Per-column date filters
@@ -460,7 +459,7 @@ async def get_retention_clients(
         where_clause = " AND ".join(where)
 
         count_result = await db.execute(
-            text(f"SELECT COUNT(*) FROM retention_mv m WHERE {where_clause}"),
+            text(f"SELECT COUNT(*) FROM retention_mv m LEFT JOIN client_scores cs ON cs.accountid = m.accountid WHERE {where_clause}"),
             params,
         )
         total = count_result.scalar() or 0
@@ -490,10 +489,13 @@ async def get_retention_clients(
                     m.max_open_trade,
                     m.max_volume{_extra_sel},
                     m.assigned_to,
+                    m.agent_name,
                     m.sales_client_potential,
                     CASE WHEN m.birth_date IS NOT NULL
-                         THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
+                         THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age,
+                    COALESCE(cs.score, 0) AS score
                 FROM retention_mv m
+                LEFT JOIN client_scores cs ON cs.accountid = m.accountid
                 WHERE {where_clause}
                 ORDER BY {sort_col} {direction} NULLS LAST
                 LIMIT :limit OFFSET :offset
@@ -501,21 +503,6 @@ async def get_retention_clients(
             {**params, "limit": page_size, "offset": (page - 1) * page_size},
         )
         rows = rows_result.mappings().all()
-
-        # Build agent name map from vtiger_users for this page
-        agent_map: dict = {}
-        try:
-            agent_ids = list({str(r["assigned_to"]) for r in rows if r["assigned_to"]})
-            if agent_ids:
-                agent_result = await db.execute(
-                    text("SELECT id, first_name, last_name FROM vtiger_users WHERE id = ANY(:ids)"),
-                    {"ids": agent_ids},
-                )
-                for ag in agent_result.fetchall():
-                    name = f"{ag[1] or ''} {ag[2] or ''}".strip()
-                    agent_map[str(ag[0])] = name or None
-        except Exception as agent_err:
-            logger.warning("Could not fetch agent names: %s", agent_err)
 
         # Fetch Open PNL live from the replica for this page's accounts
         open_pnl_map: dict = {}
@@ -573,43 +560,6 @@ async def get_retention_clients(
         except Exception as tasks_err:
             logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
 
-        # Compute client scores based on scoring_rules
-        from sqlalchemy import select as _select2
-        from app.models.scoring_rule import ScoringRule
-        from app.routers.client_scoring import SCORING_COL_SQL, SCORING_OP_MAP
-        score_map: dict = {str(r["accountid"]): 0 for r in rows}
-        try:
-            all_rules_result = await db.execute(
-                _select2(ScoringRule).order_by(ScoringRule.id)
-            )
-            all_rules = all_rules_result.scalars().all()
-            page_aids = [str(r["accountid"]) for r in rows]
-            if all_rules and page_aids:
-                for rule in all_rules:
-                    sql_expr = SCORING_COL_SQL.get(rule.field)
-                    sql_op = SCORING_OP_MAP.get(rule.operator)
-                    if not sql_expr or not sql_op:
-                        continue
-                    try:
-                        cast_value: Any = float(rule.value)
-                    except (ValueError, TypeError):
-                        cast_value = rule.value
-                    rule_where = f"m.client_qualification_date IS NOT NULL AND m.accountid = ANY(:_sr_aids)"
-                    if rule.field == "days_from_last_trade":
-                        rule_where += f" AND m.last_close_time IS NOT NULL AND {sql_expr} {sql_op} :_sr_val"
-                    else:
-                        rule_where += f" AND {sql_expr} {sql_op} :_sr_val"
-                    sr_result = await db.execute(
-                        text(f"SELECT m.accountid FROM retention_mv m WHERE {rule_where}"),
-                        {"_sr_aids": page_aids, "_sr_val": cast_value},
-                    )
-                    for sr_row in sr_result.fetchall():
-                        aid = str(sr_row[0])
-                        if aid in score_map:
-                            score_map[aid] += rule.score
-        except Exception as score_err:
-            logger.warning("Could not compute client scores: %s", score_err)
-
         return {
             "total": total,
             "page": page,
@@ -639,9 +589,9 @@ async def get_retention_clients(
                         float(r["max_volume"]) / (float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0)), 1
                     ) if r["max_volume"] is not None and (float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0)) != 0 else 0.0,
                     "assigned_to": r["assigned_to"],
-                    "agent_name": agent_map.get(str(r["assigned_to"])) if r["assigned_to"] else None,
+                    "agent_name": r["agent_name"] or None,
                     "tasks": tasks_map.get(str(r["accountid"]), []),
-                    "score": score_map.get(str(r["accountid"]), 0),
+                    "score": int(r["score"]),
                     "sales_client_potential": r["sales_client_potential"],
                     "age": int(r["age"]) if r["age"] is not None else None,
                     **{col: r[col] for col in _extra_col_names},

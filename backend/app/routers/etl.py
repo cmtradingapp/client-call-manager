@@ -1013,12 +1013,14 @@ def _build_mv_sql(extra_cols: list) -> str:
         "                ab.total_credit,\n"
         "                ab.total_equity,\n"
         "                ROUND(taa.max_open_trade::numeric, 1) AS max_open_trade,\n"
-        "                ROUND(taa.max_volume::numeric, 1) AS max_volume" + final_select_extras + "\n"
+        "                ROUND(taa.max_volume::numeric, 1) AS max_volume,\n"
+        "                TRIM(COALESCE(vu.first_name, '') || ' ' || COALESCE(vu.last_name, '')) AS agent_name" + final_select_extras + "\n"
         "            FROM ant_acc a\n"
         "            INNER JOIN trades_agg ta ON ta.accountid = a.accountid\n"
         "            INNER JOIN deposits_agg da ON da.accountid = a.accountid\n"
         "            INNER JOIN balance_agg ab ON ab.accountid = a.accountid\n"
         "            INNER JOIN trading_activity_agg taa ON taa.accountid = a.accountid" + vta_extras_join + "\n"
+        "            LEFT JOIN vtiger_users vu ON vu.id = a.assigned_to\n"
         "            WHERE a.client_qualification_date IS NOT NULL\n"
         "              AND (a.is_test_account IS NULL OR a.is_test_account = 0)\n"
         "            WITH NO DATA"
@@ -1067,7 +1069,51 @@ async def rebuild_retention_mv() -> None:
 
     logger.info("rebuild_retention_mv: MV refreshed with data")
 
+    # Compute scores for ALL clients and store in client_scores
+    try:
+        from sqlalchemy import select
+        from app.models.scoring_rule import ScoringRule
+        from app.routers.client_scoring import SCORING_COL_SQL, SCORING_OP_MAP
+        async with AsyncSessionLocal() as db:
+            rules_result = await db.execute(select(ScoringRule).order_by(ScoringRule.id))
+            rules = rules_result.scalars().all()
 
+            all_accts_result = await db.execute(text("SELECT accountid FROM retention_mv"))
+            all_accountids = [r[0] for r in all_accts_result.fetchall()]
+
+            if rules and all_accountids:
+                score_map = {aid: 0 for aid in all_accountids}
+
+                for rule in rules:
+                    sql_expr = SCORING_COL_SQL.get(rule.field)
+                    sql_op = SCORING_OP_MAP.get(rule.operator)
+                    if not sql_expr or not sql_op:
+                        continue
+                    try:
+                        cast_value = float(rule.value)
+                    except (ValueError, TypeError):
+                        cast_value = rule.value
+
+                    cond_sql = f"{sql_expr} {sql_op} :val"
+                    q = text(f"SELECT m.accountid FROM retention_mv m WHERE {cond_sql}")
+                    matched = await db.execute(q, {"val": cast_value})
+                    for row in matched.fetchall():
+                        if row[0] in score_map:
+                            score_map[row[0]] += rule.score
+
+                if score_map:
+                    upsert_sql = text("""
+                        INSERT INTO client_scores (accountid, score, computed_at)
+                        VALUES (:accountid, :score, NOW())
+                        ON CONFLICT (accountid) DO UPDATE SET score = EXCLUDED.score, computed_at = NOW()
+                    """)
+                    await db.execute(upsert_sql, [{"accountid": k, "score": v} for k, v in score_map.items()])
+                    await db.commit()
+                    logger.info("rebuild_retention_mv: computed and stored scores for %d clients", len(score_map))
+            else:
+                logger.info("rebuild_retention_mv: no rules or no accounts — skipping score computation")
+    except Exception as score_err:
+        logger.warning("rebuild_retention_mv: score computation failed: %s", score_err)
 
 
 # ---------------------------------------------------------------------------
