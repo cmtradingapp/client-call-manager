@@ -328,8 +328,6 @@ function ClientActionsModal({
 
   // Call state
   const [callLoading, setCallLoading] = useState(false);
-  const [callPhoneLoading, setCallPhoneLoading] = useState(false);
-  const [callPhone, setCallPhone] = useState<string | null>(null);
   const [callFeedback, setCallFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const handleStatusSubmit = async () => {
@@ -382,26 +380,6 @@ function ClientActionsModal({
       setWaFeedback({ type: 'error', message: friendlyError(err, 'Failed to fetch client phone number') });
     } finally {
       setWaLoading(false);
-    }
-  };
-
-  // Fetch phone when Call tab is activated
-  const handleFetchCallPhone = async () => {
-    if (callPhone) return; // already fetched
-    setCallPhoneLoading(true);
-    setCallFeedback(null);
-    try {
-      const res = await api.get(`/clients/${client.accountid}/crm-user`);
-      const phone = res.data?.fullTelephone || res.data?.telephone || res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
-      if (!phone) {
-        setCallFeedback({ type: 'error', message: 'No phone number found for this client' });
-      } else {
-        setCallPhone(String(phone));
-      }
-    } catch (err: any) {
-      setCallFeedback({ type: 'error', message: friendlyError(err, 'Failed to fetch client phone number') });
-    } finally {
-      setCallPhoneLoading(false);
     }
   };
 
@@ -483,9 +461,6 @@ function ClientActionsModal({
                 key={tab.key}
                 onClick={() => {
                   setActiveTab(tab.key);
-                  if (tab.key === 'call' && !callPhone && !callPhoneLoading && !callFeedback) {
-                    handleFetchCallPhone();
-                  }
                 }}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === tab.key
@@ -592,33 +567,14 @@ function ClientActionsModal({
               <p className="text-sm text-gray-600 mb-4">
                 Initiate a phone call to this client via SquareTalk. Your extension will be looked up automatically.
               </p>
-              {callPhoneLoading ? (
-                <p className="text-sm text-gray-500">Fetching client phone...</p>
-              ) : callPhone ? (
-                <div>
-                  <p className="text-sm text-gray-700 mb-3">
-                    Client phone: <span className="font-semibold">{callPhone}</span>
-                  </p>
-                  <button
-                    onClick={handleCall}
-                    disabled={callLoading}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <CallIcon className="w-5 h-5" />
-                    {callLoading ? 'Initiating call...' : 'Call'}
-                  </button>
-                </div>
-              ) : (
-                !callFeedback && (
-                  <button
-                    onClick={handleFetchCallPhone}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700"
-                  >
-                    <CallIcon className="w-5 h-5" />
-                    Fetch Phone Number
-                  </button>
-                )
-              )}
+              <button
+                onClick={handleCall}
+                disabled={callLoading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CallIcon className="w-5 h-5" />
+                {callLoading ? 'Initiating call...' : 'Call'}
+              </button>
               {feedbackEl(callFeedback)}
             </div>
           )}
