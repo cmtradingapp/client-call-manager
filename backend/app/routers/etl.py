@@ -267,14 +267,25 @@ async def _mssql_full_sync(
     upsert_sql: str,
     row_mapper,
     batch_size: int = 100_000,
+    lazy_truncate: bool = False,
 ) -> None:
+    """Full sync from MSSQL to a local table.
+
+    When lazy_truncate=True the TRUNCATE is deferred until the first batch
+    is successfully fetched from MSSQL.  This ensures the local table stays
+    populated if MSSQL is temporarily unavailable (no truncate-then-fail).
+    Use this for small lookup tables like vtiger_users where an empty table
+    is worse than stale data.
+    """
     try:
-        async with AsyncSessionLocal() as db:
-            await db.execute(text(f"TRUNCATE TABLE {local_table}"))
-            await db.commit()
+        if not lazy_truncate:
+            async with AsyncSessionLocal() as db:
+                await db.execute(text(f"TRUNCATE TABLE {local_table}"))
+                await db.commit()
 
         total = 0
         offset = 0
+        truncated = lazy_truncate is False  # already done above when not lazy
         while True:
             rows = await execute_query(
                 f"{select_sql} ORDER BY 1 OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
@@ -282,6 +293,12 @@ async def _mssql_full_sync(
             )
             if not rows:
                 break
+            # Lazy truncate: only wipe existing data once we know MSSQL responded
+            if not truncated:
+                async with AsyncSessionLocal() as db:
+                    await db.execute(text(f"TRUNCATE TABLE {local_table}"))
+                    await db.commit()
+                truncated = True
             async with AsyncSessionLocal() as db:
                 await db.execute(text(upsert_sql), [row_mapper(r) for r in rows])
                 await db.commit()
@@ -767,7 +784,8 @@ _vtiger_users_map = lambda r: {  # noqa: E731
 
 
 async def _run_full_sync_vtiger_users(log_id: int) -> None:
-    await _mssql_full_sync(log_id, "vtiger_users_full", _VTIGER_USERS_SELECT, "vtiger_users", _VTIGER_USERS_UPSERT, _vtiger_users_map)
+    # lazy_truncate=True: preserve existing agent data if MSSQL is temporarily down
+    await _mssql_full_sync(log_id, "vtiger_users_full", _VTIGER_USERS_SELECT, "vtiger_users", _VTIGER_USERS_UPSERT, _vtiger_users_map, lazy_truncate=True)
 
 
 
