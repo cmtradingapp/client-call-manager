@@ -261,7 +261,15 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
-type ActionTab = 'status' | 'note' | 'whatsapp';
+type ActionTab = 'status' | 'note' | 'whatsapp' | 'call';
+
+function CallIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
+    </svg>
+  );
+}
 
 function StatusIcon({ className }: { className?: string }) {
   return (
@@ -318,6 +326,12 @@ function ClientActionsModal({
   const [waLoading, setWaLoading] = useState(false);
   const [waFeedback, setWaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Call state
+  const [callLoading, setCallLoading] = useState(false);
+  const [callPhoneLoading, setCallPhoneLoading] = useState(false);
+  const [callPhone, setCallPhone] = useState<string | null>(null);
+  const [callFeedback, setCallFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   const handleStatusSubmit = async () => {
     if (!selectedStatus) return;
     setStatusSubmitting(true);
@@ -371,6 +385,39 @@ function ClientActionsModal({
     }
   };
 
+  // Fetch phone when Call tab is activated
+  const handleFetchCallPhone = async () => {
+    if (callPhone) return; // already fetched
+    setCallPhoneLoading(true);
+    setCallFeedback(null);
+    try {
+      const res = await api.get(`/clients/${client.accountid}/crm-user`);
+      const phone = res.data?.fullTelephone || res.data?.telephone || res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
+      if (!phone) {
+        setCallFeedback({ type: 'error', message: 'No phone number found for this client' });
+      } else {
+        setCallPhone(String(phone));
+      }
+    } catch (err: any) {
+      setCallFeedback({ type: 'error', message: friendlyError(err, 'Failed to fetch client phone number') });
+    } finally {
+      setCallPhoneLoading(false);
+    }
+  };
+
+  const handleCall = async () => {
+    setCallLoading(true);
+    setCallFeedback(null);
+    try {
+      const res = await api.post(`/clients/${client.accountid}/call`);
+      setCallFeedback({ type: 'success', message: res.data?.message || 'Call initiated successfully' });
+    } catch (err: any) {
+      setCallFeedback({ type: 'error', message: friendlyError(err, 'Failed to initiate call') });
+    } finally {
+      setCallLoading(false);
+    }
+  };
+
   const feedbackEl = (fb: { type: 'success' | 'error'; message: string } | null) =>
     fb ? (
       <div
@@ -399,6 +446,11 @@ function ClientActionsModal({
       key: 'whatsapp',
       label: 'WhatsApp',
       icon: <WhatsAppIcon className="w-5 h-5" />,
+    },
+    {
+      key: 'call',
+      label: 'Call',
+      icon: <CallIcon className="w-5 h-5" />,
     },
   ];
 
@@ -429,7 +481,12 @@ function ClientActionsModal({
             {tabs.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  if (tab.key === 'call' && !callPhone && !callPhoneLoading && !callFeedback) {
+                    handleFetchCallPhone();
+                  }
+                }}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === tab.key
                     ? 'bg-blue-50 text-blue-700 border border-blue-200'
@@ -526,6 +583,43 @@ function ClientActionsModal({
                 {waLoading ? 'Fetching phone...' : 'Open WhatsApp'}
               </button>
               {feedbackEl(waFeedback)}
+            </div>
+          )}
+
+          {/* Action: Call via SquareTalk */}
+          {activeTab === 'call' && (
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Initiate a phone call to this client via SquareTalk. Your extension will be looked up automatically.
+              </p>
+              {callPhoneLoading ? (
+                <p className="text-sm text-gray-500">Fetching client phone...</p>
+              ) : callPhone ? (
+                <div>
+                  <p className="text-sm text-gray-700 mb-3">
+                    Client phone: <span className="font-semibold">{callPhone}</span>
+                  </p>
+                  <button
+                    onClick={handleCall}
+                    disabled={callLoading}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <CallIcon className="w-5 h-5" />
+                    {callLoading ? 'Initiating call...' : 'Call'}
+                  </button>
+                </div>
+              ) : (
+                !callFeedback && (
+                  <button
+                    onClick={handleFetchCallPhone}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700"
+                  >
+                    <CallIcon className="w-5 h-5" />
+                    Fetch Phone Number
+                  </button>
+                )
+              )}
+              {feedbackEl(callFeedback)}
             </div>
           )}
         </div>

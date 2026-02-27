@@ -71,4 +71,17 @@ async def seed_admin(session: AsyncSession) -> None:
         session.add(crm_integration)
         logger.info("CRM integration seeded")
 
+    # Seed SquareTalk integration if not already present
+    result = await session.execute(select(Integration).where(Integration.name == "SquareTalk"))
+    if not result.scalar_one_or_none():
+        squaretalk_integration = Integration(
+            name="SquareTalk",
+            base_url="https://cmtrading.squaretalk.com/Integration",
+            auth_key=None,
+            description="SquareTalk telephony — click-to-call via agent extensions",
+            is_active=True,
+        )
+        session.add(squaretalk_integration)
+        logger.info("SquareTalk integration seeded")
+
     await session.commit()
