@@ -392,7 +392,7 @@ function ClientActionsModal({
     setWaLoading(true);
     setWaFeedback(null);
     try {
-      const res = await api.get(`/clients/${client.accountid}/crm-user`);
+      const res = await api.get(`/clients/${client.accountid}/crm-user`, { params: { log_whatsapp: true } });
       const phone = res.data?.fullTelephone || res.data?.telephone || res.data?.phone || res.data?.Phone || res.data?.phoneNumber || res.data?.PhoneNumber || res.data?.mobile || res.data?.Mobile;
       if (!phone) {
         setWaFeedback({ type: 'error', message: 'No phone number found for this client' });
