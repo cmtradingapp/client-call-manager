@@ -25,31 +25,61 @@ _MV_ACTIVE_FTD = (
     f"(m.client_qualification_date > CURRENT_DATE - INTERVAL '7 days' AND {_MV_ACTIVE})"
 )
 
+# Each value is a SQL expression used in ORDER BY.
+# The query builder appends "NULLS LAST" for all columns so NULLs always
+# sort to the bottom regardless of direction.
+#
+# Numeric columns: expressions that must compare as numbers are kept as their
+# native numeric MV column/expression — PostgreSQL sorts these correctly when
+# the column type is numeric/float.  The one exception is sales_client_potential
+# which is stored as TEXT and must be cast explicitly.
+#
+# "score" is computed per-page in Python (not stored in retention_mv), so
+# server-side sorting by score is not available; it falls back to accountid.
 _SORT_COLS = {
-    "accountid": "m.accountid",
-    "full_name": "m.full_name",
+    # --- text columns ---
+    "accountid":            "m.accountid",
+    "full_name":            "m.full_name",
+    "assigned_to":          "m.assigned_to",
+    "agent_name":           "m.assigned_to",
+
+    # --- date / timestamp columns (already correct types in MV) ---
     "client_qualification_date": "m.client_qualification_date",
-    "days_in_retention": "(CURRENT_DATE - m.client_qualification_date)",
-    "trade_count": "m.trade_count",
-    "total_profit": "m.total_profit",
-    "last_trade_date": "m.last_trade_date",
-    "days_from_last_trade": "m.last_close_time",
-    "active": _MV_ACTIVE,
-    "active_ftd": _MV_ACTIVE_FTD,
-    "deposit_count": "m.deposit_count",
-    "total_deposit": "m.total_deposit",
-    "balance": "m.total_balance",
-    "credit": "m.total_credit",
-    "equity": "m.total_equity",
-    "open_pnl": "m.total_equity",  # sorted by equity as proxy; open_pnl is fetched live
-    "sales_client_potential": "m.sales_client_potential",
-    "age": "EXTRACT(year FROM AGE(m.birth_date))",
-    "assigned_to": "m.assigned_to",
-    "agent_name": "m.assigned_to",
-    "live_equity": "(m.total_balance + m.total_credit)",  # MV proxy (excludes live open_pnl)
-    "max_open_trade": "m.max_open_trade",
-    "max_volume": "m.max_volume",
-    "turnover": "CASE WHEN (m.total_balance + m.total_credit) != 0 THEN m.max_volume / (m.total_balance + m.total_credit) ELSE 0 END",
+    "last_trade_date":      "m.last_trade_date",
+    "days_from_last_trade": "m.last_close_time",   # timestamp; NULLS LAST handles missing
+
+    # --- integer/numeric columns (native numeric type in MV) ---
+    "days_in_retention":    "(CURRENT_DATE - m.client_qualification_date)",
+    "trade_count":          "m.trade_count",
+    "total_profit":         "m.total_profit",
+    "deposit_count":        "m.deposit_count",
+    "total_deposit":        "m.total_deposit",
+    "balance":              "m.total_balance",
+    "credit":               "m.total_credit",
+    "equity":               "m.total_equity",
+    "max_open_trade":       "m.max_open_trade",
+    "max_volume":           "m.max_volume",
+    "age":                  "EXTRACT(year FROM AGE(m.birth_date))",
+
+    # --- computed numeric expressions ---
+    "live_equity":          "(m.total_balance + m.total_credit)",  # MV proxy (excludes live open_pnl)
+    "open_pnl":             "m.total_equity",  # proxy; open_pnl is fetched live
+    "turnover":             (
+        "CASE WHEN (m.total_balance + m.total_credit) != 0"
+        " THEN m.max_volume / (m.total_balance + m.total_credit)"
+        " ELSE NULL END"
+    ),
+
+    # --- boolean expressions ---
+    "active":               _MV_ACTIVE,
+    "active_ftd":           _MV_ACTIVE_FTD,
+
+    # --- text-stored numeric column — explicit cast required ---
+    "sales_client_potential": "NULLIF(TRIM(m.sales_client_potential), '')::NUMERIC",
+
+    # --- score: computed in Python post-query, cannot sort server-side ---
+    # Falls back to accountid so results are at least deterministic.
+    "score":                "m.accountid",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -287,7 +317,7 @@ async def get_retention_clients(
                          THEN EXTRACT(year FROM AGE(m.birth_date))::int END AS age
                 FROM retention_mv m
                 WHERE {where_clause}
-                ORDER BY {sort_col} {direction}
+                ORDER BY {sort_col} {direction} NULLS LAST
                 LIMIT :limit OFFSET :offset
             """),
             {**params, "limit": page_size, "offset": (page - 1) * page_size},
