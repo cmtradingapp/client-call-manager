@@ -904,7 +904,7 @@ const DEFAULT_COLS: ColDef[] = [
     sortKey: 'score',
     align: 'right',
     minWidth: '90px',
-    filterType: 'numeric',
+    filterType: 'none',
     renderCell: (c) => <span className="text-sm text-right font-semibold text-blue-700">{c.score}</span>,
   },
   {
