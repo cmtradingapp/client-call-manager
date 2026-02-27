@@ -1137,8 +1137,8 @@ export function RetentionPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [sortBy, setSortBy] = useState<SortCol>('accountid');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortBy, setSortBy] = useState<SortCol>('score');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
