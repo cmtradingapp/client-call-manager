@@ -1501,3 +1501,69 @@ async def sync_status(
             for r in rows
         ],
     }
+
+
+@router.get("/etl/diagnose-account")
+async def diagnose_account(
+    accountid: str,
+    login: str = "",
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    """Diagnostic: check why a specific account may have 0 trades in the retention MV."""
+    result: dict = {"accountid": accountid, "login_checked": login}
+
+    # 1. Check ant_acc
+    r = (await db.execute(
+        text("SELECT accountid, client_qualification_date, is_test_account, assigned_to FROM ant_acc WHERE accountid = :aid"),
+        {"aid": accountid},
+    )).fetchone()
+    result["ant_acc"] = dict(r._mapping) if r else None
+
+    # 2. Check vtiger_trading_accounts for this accountid
+    vta_rows = (await db.execute(
+        text("SELECT login, vtigeraccountid, balance, credit FROM vtiger_trading_accounts WHERE vtigeraccountid = :aid"),
+        {"aid": accountid},
+    )).fetchall()
+    result["vtiger_trading_accounts_for_account"] = [dict(r._mapping) for r in vta_rows]
+
+    # 3. If a specific login was supplied, check trades_mt4 for it
+    if login:
+        trade_rows = (await db.execute(
+            text(
+                "SELECT COUNT(*) AS total, "
+                "COUNT(CASE WHEN cmd IN (0,1) THEN 1 END) AS buy_sell_count, "
+                "MIN(open_time) AS first_trade, MAX(open_time) AS last_trade, "
+                "ROUND(SUM(computed_profit)::numeric, 2) AS total_profit "
+                "FROM trades_mt4 WHERE login = :login"
+            ),
+            {"login": login},
+        )).fetchone()
+        result["trades_mt4_for_login"] = dict(trade_rows._mapping) if trade_rows else None
+
+        # Also check if the login exists at all in vtiger_trading_accounts
+        vta_login = (await db.execute(
+            text("SELECT login, vtigeraccountid FROM vtiger_trading_accounts WHERE login = :login"),
+            {"login": login},
+        )).fetchone()
+        result["vtiger_trading_accounts_for_login"] = dict(vta_login._mapping) if vta_login else None
+
+    # 4. Check open_pnl_cache for all logins linked to this account
+    linked_logins = [r[0] for r in vta_rows] if vta_rows else []
+    if login and login not in linked_logins:
+        linked_logins.append(login)
+    if linked_logins:
+        pnl_rows = (await db.execute(
+            text("SELECT login, pnl FROM open_pnl_cache WHERE login = ANY(:logins)"),
+            {"logins": linked_logins},
+        )).fetchall()
+        result["open_pnl_cache"] = [dict(r._mapping) for r in pnl_rows]
+
+    # 5. Check retention_mv row for this account
+    mv_row = (await db.execute(
+        text("SELECT accountid, trade_count, total_profit, last_trade_date, deposit_count, total_balance, total_credit FROM retention_mv WHERE accountid = :aid"),
+        {"aid": accountid},
+    )).fetchone()
+    result["retention_mv"] = dict(mv_row._mapping) if mv_row else None
+
+    return result
