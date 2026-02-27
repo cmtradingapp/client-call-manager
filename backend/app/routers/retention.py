@@ -84,10 +84,38 @@ _SORT_COLS = {
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
 
+# Valid operators including "between" (requires two values)
+_VALID_OPS = set(_OP_MAP.keys()) | {"between"}
 
-def _num_cond(op: str, expr: str, param: str) -> str | None:
+
+def _num_cond(op: str, expr: str, param: str, param2: str | None = None) -> str | None:
+    """Build a numeric WHERE condition.
+
+    For op='between', param2 must be provided; returns BETWEEN clause.
+    For all other ops, uses _OP_MAP for the SQL operator.
+    Returns None if the operator is unrecognised.
+    """
+    if op == "between":
+        if param2 is None:
+            return None
+        return f"{expr} BETWEEN :{param} AND :{param2}"
     sql_op = _OP_MAP.get(op)
     return f"{expr} {sql_op} :{param}" if sql_op else None
+
+
+def _date_preset_cond(expr: str, preset: str) -> str | None:
+    """Return a SQL fragment for a named date preset (today / this_week / this_month).
+
+    expr must be a date-typed SQL expression (cast if needed).
+    Returns None for unknown preset values.
+    """
+    if preset == "today":
+        return f"{expr} = CURRENT_DATE"
+    if preset == "this_week":
+        return f"{expr} >= date_trunc('week', CURRENT_DATE) AND {expr} < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'"
+    if preset == "this_month":
+        return f"{expr} >= date_trunc('month', CURRENT_DATE) AND {expr} < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'"
+    return None
 
 
 @router.get("/retention/clients")
@@ -138,6 +166,54 @@ async def get_retention_clients(
     active_ftd: str = Query(""),
     # activity window
     activity_days: int = Query(35, ge=1, le=365),
+    # -----------------------------------------------------------------------
+    # Per-column text filters (ILIKE contains)
+    # -----------------------------------------------------------------------
+    filter_full_name: str = Query(""),
+    filter_status: str = Query(""),       # maps to m.sales_client_potential (no retention_status column in MV)
+    filter_agent: str = Query(""),        # ILIKE match on resolved agent name via vtiger_users subquery
+    # -----------------------------------------------------------------------
+    # Per-column numeric filters with operator + optional second value (between)
+    # -----------------------------------------------------------------------
+    filter_balance_op: str = Query(""),
+    filter_balance_val: float | None = Query(None),
+    filter_balance_val2: float | None = Query(None),
+    filter_credit_op: str = Query(""),
+    filter_credit_val: float | None = Query(None),
+    filter_credit_val2: float | None = Query(None),
+    filter_equity_op: str = Query(""),
+    filter_equity_val: float | None = Query(None),
+    filter_equity_val2: float | None = Query(None),
+    filter_live_equity_op: str = Query(""),
+    filter_live_equity_val: float | None = Query(None),
+    filter_live_equity_val2: float | None = Query(None),
+    filter_max_open_trade_op: str = Query(""),
+    filter_max_open_trade_val: float | None = Query(None),
+    filter_max_open_trade_val2: float | None = Query(None),
+    filter_max_volume_op: str = Query(""),
+    filter_max_volume_val: float | None = Query(None),
+    filter_max_volume_val2: float | None = Query(None),
+    filter_turnover_op: str = Query(""),
+    filter_turnover_val: float | None = Query(None),
+    filter_turnover_val2: float | None = Query(None),
+    filter_score_op: str = Query(""),
+    filter_score_val: float | None = Query(None),
+    filter_score_val2: float | None = Query(None),
+    # -----------------------------------------------------------------------
+    # Per-column date filters: preset (today/this_week/this_month) OR from/to range
+    # last_call  → m.last_trade_date (most recent trade / contact date in MV)
+    # last_note  → m.last_deposit_time (most recent deposit, used as last note proxy in MV)
+    # reg_date   → m.client_qualification_date
+    # -----------------------------------------------------------------------
+    filter_last_call_preset: str = Query(""),
+    filter_last_call_from: str = Query(""),
+    filter_last_call_to: str = Query(""),
+    filter_last_note_preset: str = Query(""),
+    filter_last_note_from: str = Query(""),
+    filter_last_note_to: str = Query(""),
+    filter_reg_date_preset: str = Query(""),
+    filter_reg_date_from: str = Query(""),
+    filter_reg_date_to: str = Query(""),
     _: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -251,6 +327,108 @@ async def get_retention_clients(
             if cond:
                 where.append(cond)
                 params["turnover_val"] = turnover_val
+
+        # -----------------------------------------------------------------------
+        # Per-column text filters (ILIKE contains, case-insensitive)
+        # -----------------------------------------------------------------------
+        if filter_full_name:
+            where.append("m.full_name ILIKE :filter_full_name_pattern")
+            params["filter_full_name_pattern"] = f"%{filter_full_name}%"
+
+        if filter_status:
+            # retention_status is not a column in retention_mv;
+            # sales_client_potential is the closest text-status field available.
+            where.append("m.sales_client_potential ILIKE :filter_status_pattern")
+            params["filter_status_pattern"] = f"%{filter_status}%"
+
+        if filter_agent:
+            # Agent names are stored in vtiger_users (first_name + last_name).
+            # Use a correlated sub-select so we can do ILIKE on the concatenated name
+            # without pulling the whole users table into every row.
+            where.append(
+                "EXISTS ("
+                "SELECT 1 FROM vtiger_users vu"
+                " WHERE vu.id = m.assigned_to"
+                " AND TRIM(CONCAT(vu.first_name, ' ', vu.last_name)) ILIKE :filter_agent_pattern"
+                ")"
+            )
+            params["filter_agent_pattern"] = f"%{filter_agent}%"
+
+        # -----------------------------------------------------------------------
+        # Per-column numeric filters (op + val + optional val2 for between)
+        # -----------------------------------------------------------------------
+        _numeric_filter_defs = [
+            # (op_param_value, val_param_value, val2_param_value, sql_expr, param_prefix)
+            (filter_balance_op,        filter_balance_val,        filter_balance_val2,        "m.total_balance",                                                                                                                       "filter_balance"),
+            (filter_credit_op,         filter_credit_val,         filter_credit_val2,         "m.total_credit",                                                                                                                        "filter_credit"),
+            (filter_equity_op,         filter_equity_val,         filter_equity_val2,         "m.total_equity",                                                                                                                        "filter_equity"),
+            (filter_live_equity_op,    filter_live_equity_val,    filter_live_equity_val2,    "(m.total_balance + m.total_credit)",                                                                                                    "filter_live_equity"),
+            (filter_max_open_trade_op, filter_max_open_trade_val, filter_max_open_trade_val2, "m.max_open_trade",                                                                                                                      "filter_max_open_trade"),
+            (filter_max_volume_op,     filter_max_volume_val,     filter_max_volume_val2,     "m.max_volume",                                                                                                                          "filter_max_volume"),
+            (filter_turnover_op,       filter_turnover_val,       filter_turnover_val2,       "CASE WHEN (m.total_balance + m.total_credit) != 0 THEN m.max_volume / (m.total_balance + m.total_credit) ELSE NULL END",               "filter_turnover"),
+        ]
+        for _op, _val, _val2, _expr, _prefix in _numeric_filter_defs:
+            if not _op or _op not in _VALID_OPS or _val is None:
+                continue
+            _p1 = f"{_prefix}_val"
+            _p2 = f"{_prefix}_val2"
+            # For "between", both values must be present; skip if val2 is missing.
+            if _op == "between" and _val2 is None:
+                continue
+            _cond = _num_cond(_op, _expr, _p1, _p2 if _op == "between" else None)
+            if _cond:
+                # Exclude NULLs so the filter doesn't silently skip rows with a NULL column.
+                where.append(f"{_expr} IS NOT NULL AND {_cond}")
+                params[_p1] = _val
+                if _op == "between":
+                    params[_p2] = _val2
+
+        # score filter: score is computed in Python post-query; server-side filtering
+        # is not possible. Log a warning and skip gracefully.
+        if filter_score_op and filter_score_val is not None:
+            logger.warning(
+                "filter_score_* params were supplied but score is computed in Python "
+                "after the DB query — server-side score filtering is not supported and "
+                "will be ignored. Apply score filtering on the frontend."
+            )
+
+        # -----------------------------------------------------------------------
+        # Per-column date filters
+        # last_call preset/range  → m.last_trade_date (::date cast for comparisons)
+        # last_note preset/range  → m.last_deposit_time (::date cast)
+        # reg_date  preset/range  → m.client_qualification_date
+        # -----------------------------------------------------------------------
+        _date_filter_defs = [
+            # (preset_val, from_val, to_val, sql_date_expr, param_prefix, null_guard_col)
+            (filter_last_call_preset,  filter_last_call_from,  filter_last_call_to,  "m.last_trade_date::date",   "filter_last_call",  "m.last_trade_date"),
+            (filter_last_note_preset,  filter_last_note_from,  filter_last_note_to,  "m.last_deposit_time::date", "filter_last_note",  "m.last_deposit_time"),
+            (filter_reg_date_preset,   filter_reg_date_from,   filter_reg_date_to,   "m.client_qualification_date", "filter_reg_date", None),
+        ]
+        for _preset, _from, _to, _date_expr, _dp, _null_col in _date_filter_defs:
+            _date_conds: list[str] = []
+            if _null_col:
+                _null_guard = f"{_null_col} IS NOT NULL"
+            else:
+                _null_guard = None
+
+            if _preset:
+                _pc = _date_preset_cond(_date_expr, _preset)
+                if _pc:
+                    _date_conds.append(_pc)
+            else:
+                if _from:
+                    _date_conds.append(f"{_date_expr} >= :{_dp}_from")
+                    params[f"{_dp}_from"] = date.fromisoformat(_from)
+                if _to:
+                    _date_conds.append(f"{_date_expr} <= :{_dp}_to")
+                    params[f"{_dp}_to"] = date.fromisoformat(_to)
+
+            if _date_conds:
+                combined = " AND ".join(_date_conds)
+                if _null_guard:
+                    where.append(f"{_null_guard} AND {combined}")
+                else:
+                    where.append(combined)
 
         if assigned_to:
             where.append("m.assigned_to = :assigned_to")
