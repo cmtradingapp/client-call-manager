@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import axios from 'axios';
 
@@ -862,6 +862,248 @@ function ClientActionsModal({
   );
 }
 
+// ── Column definitions ─────────────────────────────────────────────────────
+
+type ColFilterType = 'text' | 'numeric' | 'date' | 'none';
+
+interface ColDef {
+  key: string;
+  label: string;
+  sortKey?: SortCol;
+  align?: 'left' | 'right';
+  minWidth?: string;
+  filterType: ColFilterType;
+  renderHeader?: (props: { colFilters: ColFilters; setColFilters: React.Dispatch<React.SetStateAction<ColFilters>>; sortBy: SortCol; sortDir: 'asc' | 'desc' }) => ReactNode;
+  renderCell: (c: RetentionClient) => ReactNode;
+}
+
+const DEFAULT_COLS: ColDef[] = [
+  {
+    key: 'tasks',
+    label: 'Tasks',
+    filterType: 'none',
+    renderCell: (c) => (
+      c.tasks.length === 0 ? (
+        <span className="text-xs text-gray-400">—</span>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {c.tasks.map((t) => {
+            const style = TASK_COLOR_STYLES[t.color] || TASK_COLOR_STYLES.grey;
+            return (
+              <span key={t.name} className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} whitespace-nowrap`}>{t.name}</span>
+            );
+          })}
+        </div>
+      )
+    ),
+  },
+  {
+    key: 'score',
+    label: 'Score',
+    sortKey: 'score',
+    align: 'right',
+    minWidth: '90px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right font-semibold text-blue-700">{c.score}</span>,
+  },
+  {
+    key: 'agent_name',
+    label: 'Agent',
+    sortKey: 'agent_name',
+    align: 'left',
+    minWidth: '120px',
+    filterType: 'text',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.agent_name ?? '—'}</span>,
+  },
+  {
+    key: 'sales_client_potential',
+    label: 'Potential',
+    sortKey: 'sales_client_potential',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.sales_client_potential ?? '—'}</span>,
+  },
+  {
+    key: 'age',
+    label: 'Age',
+    sortKey: 'age',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.age ?? '—'}</span>,
+  },
+  {
+    key: 'client_qualification_date',
+    label: 'Qual. Date',
+    sortKey: 'client_qualification_date',
+    align: 'left',
+    minWidth: '130px',
+    filterType: 'date',
+    renderCell: (c) => <span className="text-sm text-gray-700">{formatDate(c.client_qualification_date)}</span>,
+  },
+  {
+    key: 'days_in_retention',
+    label: 'Days in Ret.',
+    sortKey: 'days_in_retention',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.days_in_retention ?? '—'}</span>,
+  },
+  {
+    key: 'trade_count',
+    label: 'Trades',
+    sortKey: 'trade_count',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.trade_count.toLocaleString()}</span>,
+  },
+  {
+    key: 'total_profit',
+    label: 'Total Profit',
+    sortKey: 'total_profit',
+    align: 'right',
+    filterType: 'none',
+    renderCell: (c) => (
+      <span className={`text-sm font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+        {fmtNum(c.total_profit)}
+      </span>
+    ),
+  },
+  {
+    key: 'last_trade_date',
+    label: 'Last Trade',
+    sortKey: 'last_trade_date',
+    align: 'left',
+    minWidth: '130px',
+    filterType: 'date',
+    renderCell: (c) => <span className="text-sm text-gray-700">{formatDate(c.last_trade_date)}</span>,
+  },
+  {
+    key: 'days_from_last_trade',
+    label: 'Days from Last Trade',
+    sortKey: 'days_from_last_trade',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.days_from_last_trade ?? '—'}</span>,
+  },
+  {
+    key: 'deposit_count',
+    label: 'Deposits',
+    sortKey: 'deposit_count',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.deposit_count.toLocaleString()}</span>,
+  },
+  {
+    key: 'total_deposit',
+    label: 'Total Deposit',
+    sortKey: 'total_deposit',
+    align: 'right',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{fmtNum(c.total_deposit)}</span>,
+  },
+  {
+    key: 'balance',
+    label: 'Balance',
+    sortKey: 'balance',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{fmtNum(c.balance)}</span>,
+  },
+  {
+    key: 'credit',
+    label: 'Credit',
+    sortKey: 'credit',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{fmtNum(c.credit)}</span>,
+  },
+  {
+    key: 'equity',
+    label: 'Equity',
+    sortKey: 'equity',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{fmtNum(c.equity)}</span>,
+  },
+  {
+    key: 'open_pnl',
+    label: 'Open PNL',
+    sortKey: 'open_pnl',
+    align: 'right',
+    filterType: 'none',
+    renderCell: (c) => (
+      <span className={`text-sm font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+        {fmtNum(c.open_pnl)}
+      </span>
+    ),
+  },
+  {
+    key: 'live_equity',
+    label: 'Live Equity',
+    sortKey: 'live_equity',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => (
+      <span className={`text-sm font-medium ${c.live_equity >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+        {fmtNum(c.live_equity)}
+      </span>
+    ),
+  },
+  {
+    key: 'max_open_trade',
+    label: 'Max Open Trade',
+    sortKey: 'max_open_trade',
+    align: 'right',
+    minWidth: '120px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{c.max_open_trade != null ? fmtNum(c.max_open_trade, 1) : '\u2014'}</span>,
+  },
+  {
+    key: 'max_volume',
+    label: 'Max Volume',
+    sortKey: 'max_volume',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</span>,
+  },
+  {
+    key: 'turnover',
+    label: 'Turnover',
+    sortKey: 'turnover',
+    align: 'right',
+    minWidth: '110px',
+    filterType: 'numeric',
+    renderCell: (c) => <span className="text-sm text-right text-gray-700">{fmtNum(c.turnover, 1)}</span>,
+  },
+  {
+    key: 'active',
+    label: 'Active',
+    sortKey: 'active',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <BoolBadge value={c.active} />,
+  },
+  {
+    key: 'active_ftd',
+    label: 'Active FTD',
+    sortKey: 'active_ftd',
+    align: 'left',
+    filterType: 'none',
+    renderCell: (c) => <BoolBadge value={c.active_ftd} />,
+  },
+];
+
+// Keys of the draggable columns (excludes pinned: accountid, full_name)
+const DEFAULT_COL_ORDER = DEFAULT_COLS.map((c) => c.key);
+
+// Lookup map for quick access
+const COL_DEF_MAP = Object.fromEntries(DEFAULT_COLS.map((c) => [c.key, c]));
+
 export function RetentionPage() {
   const [data, setData] = useState<{ total: number; clients: RetentionClient[] } | null>(null);
   const [page, setPage] = useState(1);
@@ -880,6 +1122,90 @@ export function RetentionPage() {
   // Debounced colFilters that actually trigger the API call
   const [debouncedColFilters, setDebouncedColFilters] = useState<ColFilters>({});
   const colFiltersDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Column order state ─────────────────────────────────────────────────
+  const [colOrder, setColOrder] = useState<string[]>(DEFAULT_COL_ORDER);
+  const [colOrderLoaded, setColOrderLoaded] = useState(false);
+  // Drag state — track which column key is being dragged and which is the drop target
+  const dragColRef = useRef<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+
+  // On mount: fetch saved column order from server
+  useEffect(() => {
+    api.get('/preferences/columns')
+      .then((res) => {
+        const saved: string[] | null = res.data?.order ?? null;
+        if (Array.isArray(saved) && saved.length > 0) {
+          // Merge: saved order first, then append any new columns not in saved order
+          const validSaved = saved.filter((k) => COL_DEF_MAP[k]);
+          const missing = DEFAULT_COL_ORDER.filter((k) => !validSaved.includes(k));
+          setColOrder([...validSaved, ...missing]);
+        }
+      })
+      .catch(() => {
+        // Silently fall back to default order
+      })
+      .finally(() => setColOrderLoaded(true));
+  }, []);
+
+  // Persist column order to server (immediate after drop)
+  const saveColOrder = useCallback((order: string[]) => {
+    api.put('/preferences/columns', { order }).catch(() => {
+      // Silently ignore persistence failures
+    });
+  }, []);
+
+  // ── Drag & drop handlers ───────────────────────────────────────────────
+  const handleDragStart = useCallback((key: string) => {
+    dragColRef.current = key;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, key: string) => {
+    e.preventDefault(); // required to allow drop
+    setDragOverCol(key);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverCol(null);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetKey: string) => {
+    e.preventDefault();
+    setDragOverCol(null);
+    const sourceKey = dragColRef.current;
+    if (!sourceKey || sourceKey === targetKey) return;
+    setColOrder((prev) => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(sourceKey);
+      const toIdx = next.indexOf(targetKey);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, sourceKey);
+      saveColOrder(next);
+      return next;
+    });
+    dragColRef.current = null;
+  }, [saveColOrder]);
+
+  const handleDragEnd = useCallback(() => {
+    dragColRef.current = null;
+    setDragOverCol(null);
+  }, []);
+
+  // Reset column order to default
+  const resetColOrder = useCallback(() => {
+    setColOrder(DEFAULT_COL_ORDER);
+    saveColOrder(DEFAULT_COL_ORDER);
+  }, [saveColOrder]);
+
+  // Ordered column definitions (draggable columns only; pinned prepended in render)
+  const orderedCols = useMemo(
+    () => colOrder.map((k) => COL_DEF_MAP[k]).filter(Boolean) as ColDef[],
+    [colOrder],
+  );
+
+  // Total column count: 2 pinned + ordered draggable cols
+  const totalColCount = 2 + orderedCols.length;
 
   useEffect(() => {
     api.get('/retention/agents').then((r) => setAgents(r.data)).catch(() => {});
@@ -979,6 +1305,12 @@ export function RetentionPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const activeCount = countActive(applied);
 
+  // Check if order differs from default
+  const isCustomOrder = useMemo(
+    () => colOrder.join(',') !== DEFAULT_COL_ORDER.join(','),
+    [colOrder],
+  );
+
   // ── Virtual scrolling setup ──
   const ROW_HEIGHT = 44; // estimated row height in px
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -990,6 +1322,59 @@ export function RetentionPage() {
     estimateSize: useCallback(() => ROW_HEIGHT, []),
     overscan: 10,
   });
+
+  // Render a column header <th>
+  const renderColHeader = (col: ColDef) => {
+    const isDragOver = dragOverCol === col.key;
+    const baseClass = [
+      'px-4 pt-3 pb-1 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap align-top select-none',
+      col.sortKey ? 'cursor-pointer hover:bg-gray-100' : '',
+      col.align === 'right' ? 'text-right' : 'text-left',
+      col.minWidth ? `min-w-[${col.minWidth}]` : '',
+      // Drag-over highlight
+      isDragOver ? 'border-l-2 border-blue-500 bg-blue-50' : '',
+    ].filter(Boolean).join(' ');
+
+    return (
+      <th
+        key={col.key}
+        className={baseClass}
+        draggable
+        onDragStart={() => handleDragStart(col.key)}
+        onDragOver={(e) => handleDragOver(e, col.key)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, col.key)}
+        onDragEnd={handleDragEnd}
+        onClick={col.sortKey ? () => handleSort(col.sortKey!) : undefined}
+        title="Drag to reorder"
+        style={col.minWidth ? { minWidth: col.minWidth } : undefined}
+      >
+        <span className="flex items-center gap-0.5 cursor-grab active:cursor-grabbing">
+          <span className="text-gray-300 text-xs mr-0.5" aria-hidden>⠿</span>
+          {col.label}
+          {col.sortKey && <SortIcon col={col.sortKey} sortBy={sortBy} sortDir={sortDir} />}
+        </span>
+        {col.filterType === 'text' && (
+          <ColTextFilter col={col.key} colFilters={colFilters} setColFilters={setColFilters} />
+        )}
+        {col.filterType === 'numeric' && (
+          <ColNumericFilter col={col.key} colFilters={colFilters} setColFilters={setColFilters} />
+        )}
+        {col.filterType === 'date' && (
+          <ColDateFilter col={col.key} colFilters={colFilters} setColFilters={setColFilters} />
+        )}
+      </th>
+    );
+  };
+
+  // Don't render until column order is loaded to avoid flicker
+  if (!colOrderLoaded) {
+    return (
+      <div className="flex items-center justify-center py-20 text-sm text-gray-400">
+        Loading...
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -1158,6 +1543,15 @@ export function RetentionPage() {
                 Clear Column Filters ({activeColFilterCount})
               </button>
             )}
+            {isCustomOrder && (
+              <button
+                onClick={resetColOrder}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 bg-white hover:bg-gray-50"
+                title="Reset column order to default"
+              >
+                Reset Columns
+              </button>
+            )}
           </div>
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
@@ -1179,83 +1573,31 @@ export function RetentionPage() {
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
               <tr>
+                {/* Pinned: Account ID — not draggable */}
                 <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('accountid')}>
                   <span>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></span>
                   <ColTextFilter col="accountid" colFilters={colFilters} setColFilters={setColFilters} />
                 </th>
+                {/* Pinned: Full Name — not draggable */}
                 <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[140px]" onClick={() => handleSort('full_name')}>
                   <span>Full Name <SortIcon col="full_name" sortBy={sortBy} sortDir={sortDir} /></span>
                   <ColTextFilter col="full_name" colFilters={colFilters} setColFilters={setColFilters} />
                 </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap align-top">Tasks</th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[90px]" onClick={() => handleSort('score')}>
-                  <span>Score <SortIcon col="score" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="score" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('agent_name')}>
-                  <span>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColTextFilter col="agent_name" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[130px]" onClick={() => handleSort('client_qualification_date')}>
-                  <span>Qual. Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColDateFilter col="client_qualification_date" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('days_in_retention')}>Days in Ret. <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('trade_count')}>Trades <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[130px]" onClick={() => handleSort('last_trade_date')}>
-                  <span>Last Trade <SortIcon col="last_trade_date" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColDateFilter col="last_trade_date" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('days_from_last_trade')}>Days from Last Trade <SortIcon col="days_from_last_trade" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('deposit_count')}>Deposits <SortIcon col="deposit_count" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('total_deposit')}>Total Deposit <SortIcon col="total_deposit" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('balance')}>
-                  <span>Balance <SortIcon col="balance" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="balance" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('credit')}>
-                  <span>Credit <SortIcon col="credit" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="credit" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('equity')}>
-                  <span>Equity <SortIcon col="equity" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="equity" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('open_pnl')}>Open PNL <SortIcon col="open_pnl" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('live_equity')}>
-                  <span>Live Equity <SortIcon col="live_equity" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="live_equity" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('max_open_trade')}>
-                  <span>Max Open Trade <SortIcon col="max_open_trade" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="max_open_trade" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('max_volume')}>
-                  <span>Max Volume <SortIcon col="max_volume" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="max_volume" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('turnover')}>
-                  <span>Turnover <SortIcon col="turnover" sortBy={sortBy} sortDir={sortDir} /></span>
-                  <ColNumericFilter col="turnover" colFilters={colFilters} setColFilters={setColFilters} />
-                </th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
+                {/* Draggable columns in current order */}
+                {orderedCols.map((col) => renderColHeader(col))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={25} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={totalColCount} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || clients.length === 0 ? (
-                <tr><td colSpan={25} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={totalColCount} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 <>
                   {/* Spacer for virtual scroll — pushes visible rows to correct offset */}
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: rowVirtualizer.getVirtualItems()[0].start }}>
-                      <td colSpan={25} style={{ padding: 0, border: 'none' }} />
+                      <td colSpan={totalColCount} style={{ padding: 0, border: 'none' }} />
                     </tr>
                   )}
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -1268,55 +1610,27 @@ export function RetentionPage() {
                         className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
                         onDoubleClick={() => setSelectedClient(c)}
                       >
+                        {/* Pinned cells */}
                         <td className="px-4 py-3 text-sm font-medium">
                           <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{c.full_name || '\u2014'}</td>
-                        <td className="px-4 py-3">
-                          {c.tasks.length === 0 ? (
-                            <span className="text-xs text-gray-400">—</span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {c.tasks.map((t) => {
-                                const style = TASK_COLOR_STYLES[t.color] || TASK_COLOR_STYLES.grey;
-                                return (
-                                  <span key={t.name} className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} whitespace-nowrap`}>{t.name}</span>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-semibold text-blue-700">{c.score}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {fmtNum(c.total_profit)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.last_trade_date)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.days_from_last_trade ?? '—'}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.deposit_count.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.total_deposit)}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.balance)}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.credit)}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.equity)}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.open_pnl)}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.live_equity >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.live_equity)}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_open_trade != null ? fmtNum(c.max_open_trade, 1) : '\u2014'}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.turnover, 1)}</td>
-                        <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
-                        <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
+                        {/* Ordered draggable cells */}
+                        {orderedCols.map((col) => (
+                          <td
+                            key={col.key}
+                            className={`px-4 py-3 ${col.align === 'right' ? 'text-right' : ''}`}
+                          >
+                            {col.renderCell(c)}
+                          </td>
+                        ))}
                       </tr>
                     );
                   })}
                   {/* Bottom spacer for virtual scroll */}
                   {rowVirtualizer.getVirtualItems().length > 0 && (
                     <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end) }}>
-                      <td colSpan={25} style={{ padding: 0, border: 'none' }} />
+                      <td colSpan={totalColCount} style={{ padding: 0, border: 'none' }} />
                     </tr>
                   )}
                 </>
