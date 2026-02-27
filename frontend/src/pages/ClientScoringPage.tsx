@@ -38,6 +38,10 @@ const FIELD_OPTIONS = [
   { key: 'days_from_last_trade', label: 'Days from Last Trade' },
   { key: 'sales_potential',      label: 'Sales Potential' },
   { key: 'age',                  label: 'Age' },
+  { key: 'live_equity',          label: 'Live Equity' },
+  { key: 'max_open_trade',       label: 'Max Open Trade' },
+  { key: 'max_volume',           label: 'Max Volume' },
+  { key: 'turnover',             label: 'Turnover' },
 ];
 
 const OP_OPTIONS = [

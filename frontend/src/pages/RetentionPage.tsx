@@ -28,7 +28,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
+type SortCol = 'accountid' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -53,6 +53,10 @@ interface RetentionClient {
   credit: number;
   equity: number;
   open_pnl: number;
+  live_equity: number;
+  max_open_trade: number | null;
+  max_volume: number | null;
+  turnover: number;
   assigned_to: string | null;
   agent_name: string | null;
   tasks: TaskInfo[];
@@ -86,6 +90,14 @@ interface Filters {
   credit_val: string;
   equity_op: NumOp;
   equity_val: string;
+  live_equity_op: NumOp;
+  live_equity_val: string;
+  max_open_trade_op: NumOp;
+  max_open_trade_val: string;
+  max_volume_op: NumOp;
+  max_volume_val: string;
+  turnover_op: NumOp;
+  turnover_val: string;
   assigned_to: string;
   task_id: string;
   active: BoolFilter;
@@ -117,6 +129,14 @@ const EMPTY_FILTERS: Filters = {
   credit_val: '',
   equity_op: '',
   equity_val: '',
+  live_equity_op: '',
+  live_equity_val: '',
+  max_open_trade_op: '',
+  max_open_trade_val: '',
+  max_volume_op: '',
+  max_volume_val: '',
+  turnover_op: '',
+  turnover_val: '',
   assigned_to: '',
   task_id: '',
   active: '',
@@ -138,6 +158,10 @@ function countActive(f: Filters) {
     f.balance_op && f.balance_val,
     f.credit_op && f.credit_val,
     f.equity_op && f.equity_val,
+    f.live_equity_op && f.live_equity_val,
+    f.max_open_trade_op && f.max_open_trade_val,
+    f.max_volume_op && f.max_volume_val,
+    f.turnover_op && f.turnover_val,
     f.assigned_to,
     f.task_id,
     f.active,
@@ -681,6 +705,10 @@ export function RetentionPage() {
           balance_op: f.balance_op, balance_val: f.balance_val || undefined,
           credit_op: f.credit_op, credit_val: f.credit_val || undefined,
           equity_op: f.equity_op, equity_val: f.equity_val || undefined,
+          live_equity_op: f.live_equity_op, live_equity_val: f.live_equity_val || undefined,
+          max_open_trade_op: f.max_open_trade_op, max_open_trade_val: f.max_open_trade_val || undefined,
+          max_volume_op: f.max_volume_op, max_volume_val: f.max_volume_val || undefined,
+          turnover_op: f.turnover_op, turnover_val: f.turnover_val || undefined,
           assigned_to: f.assigned_to || undefined,
           task_id: f.task_id || undefined,
           active: f.active, active_ftd: f.active_ftd,
@@ -807,6 +835,14 @@ export function RetentionPage() {
                 onOp={(v) => setField('credit_op', v)} onVal={(v) => setField('credit_val', v)} />
               <NumericFilter label="Equity" op={draft.equity_op} val={draft.equity_val}
                 onOp={(v) => setField('equity_op', v)} onVal={(v) => setField('equity_val', v)} />
+              <NumericFilter label="Live Equity" op={draft.live_equity_op} val={draft.live_equity_val}
+                onOp={(v) => setField('live_equity_op', v)} onVal={(v) => setField('live_equity_val', v)} />
+              <NumericFilter label="Max Open Trade" op={draft.max_open_trade_op} val={draft.max_open_trade_val}
+                onOp={(v) => setField('max_open_trade_op', v)} onVal={(v) => setField('max_open_trade_val', v)} />
+              <NumericFilter label="Max Volume" op={draft.max_volume_op} val={draft.max_volume_val}
+                onOp={(v) => setField('max_volume_op', v)} onVal={(v) => setField('max_volume_val', v)} />
+              <NumericFilter label="Turnover" op={draft.turnover_op} val={draft.turnover_val}
+                onOp={(v) => setField('turnover_op', v)} onVal={(v) => setField('turnover_val', v)} />
               {/* Agent filter */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Agent</label>
@@ -895,15 +931,19 @@ export function RetentionPage() {
                 <th className={thClassRight} onClick={() => handleSort('credit')}>Credit <SortIcon col="credit" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('equity')}>Equity <SortIcon col="equity" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClassRight} onClick={() => handleSort('open_pnl')}>Open PNL <SortIcon col="open_pnl" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('live_equity')}>Live Equity <SortIcon col="live_equity" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('max_open_trade')}>Max Open Trade <SortIcon col="max_open_trade" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('max_volume')}>Max Volume <SortIcon col="max_volume" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className={thClassRight} onClick={() => handleSort('turnover')}>Turnover <SortIcon col="turnover" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className={thClass} onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={20} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
               ) : !data || data.clients.length === 0 ? (
-                <tr><td colSpan={20} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
+                <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
                 data.clients.map((c) => (
                   <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => setSelectedClient(c)}>
@@ -942,6 +982,10 @@ export function RetentionPage() {
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.credit)}</td>
                     <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.equity)}</td>
                     <td className={`px-4 py-3 text-sm text-right font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.open_pnl)}</td>
+                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.live_equity >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.live_equity)}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_open_trade != null ? fmtNum(c.max_open_trade, 1) : '\u2014'}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.turnover, 1)}</td>
                     <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
                     <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
                   </tr>

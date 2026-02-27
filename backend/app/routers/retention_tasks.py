@@ -29,6 +29,10 @@ _TASK_COL_SQL: Dict[str, str] = {
     "sales_potential":      "NULLIF(TRIM(m.sales_client_potential), '')::numeric",
     "age":                  "EXTRACT(year FROM AGE(m.birth_date))::numeric",
     "assigned_to":          "m.assigned_to",
+    "live_equity":          "(m.total_balance + m.total_credit)",
+    "max_open_trade":       "m.max_open_trade",
+    "max_volume":           "m.max_volume",
+    "turnover":             "CASE WHEN (m.total_balance + m.total_credit) != 0 THEN m.max_volume / (m.total_balance + m.total_credit) ELSE 0 END",
 }
 
 _OP_MAP: Dict[str, str] = {

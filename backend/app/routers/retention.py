@@ -45,6 +45,10 @@ _SORT_COLS = {
     "age": "EXTRACT(year FROM AGE(m.birth_date))",
     "assigned_to": "m.assigned_to",
     "agent_name": "m.assigned_to",
+    "live_equity": "(m.total_balance + m.total_credit)",  # MV proxy (excludes live open_pnl)
+    "max_open_trade": "m.max_open_trade",
+    "max_volume": "m.max_volume",
+    "turnover": "CASE WHEN (m.total_balance + m.total_credit) != 0 THEN m.max_volume / (m.total_balance + m.total_credit) ELSE 0 END",
 }
 
 _OP_MAP = {"eq": "=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
@@ -81,6 +85,14 @@ async def get_retention_clients(
     credit_val: float | None = Query(None),
     equity_op: str = Query(""),
     equity_val: float | None = Query(None),
+    live_equity_op: str = Query(""),
+    live_equity_val: float | None = Query(None),
+    max_open_trade_op: str = Query(""),
+    max_open_trade_val: float | None = Query(None),
+    max_volume_op: str = Query(""),
+    max_volume_val: float | None = Query(None),
+    turnover_op: str = Query(""),
+    turnover_val: float | None = Query(None),
     # date range filters
     qual_date_from: str = Query(""),
     qual_date_to: str = Query(""),
@@ -185,6 +197,30 @@ async def get_retention_clients(
                 where.append(cond)
                 params["equity_val"] = equity_val
 
+        if live_equity_op and live_equity_val is not None:
+            cond = _num_cond(live_equity_op, "(m.total_balance + m.total_credit)", "live_equity_val")
+            if cond:
+                where.append(cond)
+                params["live_equity_val"] = live_equity_val
+
+        if max_open_trade_op and max_open_trade_val is not None:
+            cond = _num_cond(max_open_trade_op, "m.max_open_trade", "max_open_trade_val")
+            if cond:
+                where.append(cond)
+                params["max_open_trade_val"] = max_open_trade_val
+
+        if max_volume_op and max_volume_val is not None:
+            cond = _num_cond(max_volume_op, "m.max_volume", "max_volume_val")
+            if cond:
+                where.append(cond)
+                params["max_volume_val"] = max_volume_val
+
+        if turnover_op and turnover_val is not None:
+            cond = _num_cond(turnover_op, "CASE WHEN (m.total_balance + m.total_credit) != 0 THEN m.max_volume / (m.total_balance + m.total_credit) ELSE 0 END", "turnover_val")
+            if cond:
+                where.append(cond)
+                params["turnover_val"] = turnover_val
+
         if assigned_to:
             where.append("m.assigned_to = :assigned_to")
             params["assigned_to"] = assigned_to
@@ -240,7 +276,9 @@ async def get_retention_clients(
                     m.total_deposit,
                     m.total_balance AS balance,
                     m.total_credit AS credit,
-                    m.total_equity AS equity{_extra_sel},
+                    m.total_equity AS equity,
+                    m.max_open_trade,
+                    m.max_volume{_extra_sel},
                     m.assigned_to,
                     m.sales_client_potential,
                     CASE WHEN m.birth_date IS NOT NULL
@@ -383,6 +421,12 @@ async def get_retention_clients(
                     "credit": float(r["credit"]),
                     "equity": float(r["equity"]),
                     "open_pnl": open_pnl_map.get(str(r["accountid"]), 0.0),
+                    "max_open_trade": round(float(r["max_open_trade"]), 1) if r["max_open_trade"] is not None else None,
+                    "max_volume": round(float(r["max_volume"]), 1) if r["max_volume"] is not None else None,
+                    "live_equity": round(float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0), 2),
+                    "turnover": round(
+                        float(r["max_volume"]) / (float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0)), 1
+                    ) if r["max_volume"] is not None and (float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0)) != 0 else 0.0,
                     "assigned_to": r["assigned_to"],
                     "agent_name": agent_map.get(str(r["assigned_to"])) if r["assigned_to"] else None,
                     "tasks": tasks_map.get(str(r["accountid"]), []),
