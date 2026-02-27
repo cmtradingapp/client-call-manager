@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import axios from 'axios';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '/api' });
@@ -741,6 +742,18 @@ export function RetentionPage() {
   const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
   const thClassRight = 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
 
+  // ── Virtual scrolling setup ──
+  const ROW_HEIGHT = 44; // estimated row height in px
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const clients = data?.clients ?? [];
+
+  const rowVirtualizer = useVirtualizer({
+    count: clients.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: useCallback(() => ROW_HEIGHT, []),
+    overscan: 10,
+  });
+
   return (
     <div className="space-y-4">
       {/* Collapsible filters */}
@@ -909,9 +922,14 @@ export function RetentionPage() {
 
         {error && <div className="px-4 py-3 bg-red-50 border-b border-red-100 text-sm text-red-600">{error}</div>}
 
-        <div className="overflow-x-auto">
+        {/* Scroll container: persistent horizontal scrollbar + fixed height for virtual scrolling + sticky header */}
+        <div
+          ref={scrollContainerRef}
+          className="overflow-x-scroll overflow-y-auto"
+          style={{ maxHeight: 'calc(100vh - 260px)' }}
+        >
           <table className="w-full">
-            <thead className="bg-gray-50 sticky top-0">
+            <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
               <tr>
                 <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tasks</th>
@@ -942,54 +960,77 @@ export function RetentionPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">Loading…</td></tr>
-              ) : !data || data.clients.length === 0 ? (
+              ) : !data || clients.length === 0 ? (
                 <tr><td colSpan={24} className="px-4 py-12 text-center text-sm text-gray-400">No accounts found.</td></tr>
               ) : (
-                data.clients.map((c) => (
-                  <tr key={c.accountid} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onDoubleClick={() => setSelectedClient(c)}>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.tasks.length === 0 ? (
-                        <span className="text-xs text-gray-400">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {c.tasks.map((t) => {
-                            const style = TASK_COLOR_STYLES[t.color] || TASK_COLOR_STYLES.grey;
-                            return (
-                              <span key={t.name} className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} whitespace-nowrap`}>{t.name}</span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-semibold text-blue-700">{c.score}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
-                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {fmtNum(c.total_profit)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.last_trade_date)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.days_from_last_trade ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{c.deposit_count.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.total_deposit)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.balance)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.credit)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.equity)}</td>
-                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.open_pnl)}</td>
-                    <td className={`px-4 py-3 text-sm text-right font-medium ${c.live_equity >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.live_equity)}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_open_trade != null ? fmtNum(c.max_open_trade, 1) : '\u2014'}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.turnover, 1)}</td>
-                    <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
-                    <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
-                  </tr>
-                ))
+                <>
+                  {/* Spacer for virtual scroll — pushes visible rows to correct offset */}
+                  {rowVirtualizer.getVirtualItems().length > 0 && (
+                    <tr style={{ height: rowVirtualizer.getVirtualItems()[0].start }}>
+                      <td colSpan={24} style={{ padding: 0, border: 'none' }} />
+                    </tr>
+                  )}
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const c = clients[virtualRow.index];
+                    return (
+                      <tr
+                        key={c.accountid}
+                        data-index={virtualRow.index}
+                        ref={rowVirtualizer.measureElement}
+                        className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                        onDoubleClick={() => setSelectedClient(c)}
+                      >
+                        <td className="px-4 py-3 text-sm font-medium">
+                          <a href={`https://crm.cmtrading.com/#/users/user/${c.accountid}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{c.accountid}</a>
+                        </td>
+                        <td className="px-4 py-3">
+                          {c.tasks.length === 0 ? (
+                            <span className="text-xs text-gray-400">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {c.tasks.map((t) => {
+                                const style = TASK_COLOR_STYLES[t.color] || TASK_COLOR_STYLES.grey;
+                                return (
+                                  <span key={t.name} className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} whitespace-nowrap`}>{t.name}</span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-semibold text-blue-700">{c.score}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.agent_name ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.sales_client_potential ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.age ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.client_qualification_date)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.days_in_retention ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.trade_count.toLocaleString()}</td>
+                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {fmtNum(c.total_profit)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{formatDate(c.last_trade_date)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.days_from_last_trade ?? '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{c.deposit_count.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.total_deposit)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.balance)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.credit)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.equity)}</td>
+                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.open_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.open_pnl)}</td>
+                        <td className={`px-4 py-3 text-sm text-right font-medium ${c.live_equity >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtNum(c.live_equity)}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_open_trade != null ? fmtNum(c.max_open_trade, 1) : '\u2014'}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-700">{fmtNum(c.turnover, 1)}</td>
+                        <td className="px-4 py-3"><BoolBadge value={c.active} /></td>
+                        <td className="px-4 py-3"><BoolBadge value={c.active_ftd} /></td>
+                      </tr>
+                    );
+                  })}
+                  {/* Bottom spacer for virtual scroll */}
+                  {rowVirtualizer.getVirtualItems().length > 0 && (
+                    <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end) }}>
+                      <td colSpan={24} style={{ padding: 0, border: 'none' }} />
+                    </tr>
+                  )}
+                </>
               )}
             </tbody>
           </table>
