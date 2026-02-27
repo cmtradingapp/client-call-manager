@@ -211,6 +211,21 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("audit_log table migration applied")
+    # Migrate: ensure user_preferences table exists (CLAUD-25)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR NOT NULL UNIQUE,
+                retention_column_order JSONB,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_user_preferences_username ON user_preferences (username)"
+        ))
+        await session.commit()
+    logger.info("user_preferences table migration applied")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")
