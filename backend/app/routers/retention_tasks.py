@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -140,6 +141,12 @@ class TaskUpdate(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+async def _trigger_task_assignments() -> None:
+    """Fire-and-forget: recompute client_task_assignments after a task change."""
+    from app.routers.etl import rebuild_task_assignments
+    await rebuild_task_assignments()
+
+
 def _task_out(task: RetentionTask) -> Dict[str, Any]:
     return {
         "id": task.id,
@@ -183,6 +190,7 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    asyncio.create_task(_trigger_task_assignments())
     return _task_out(task)
 
 
@@ -206,6 +214,7 @@ async def update_task(
             task.color = color
     await db.commit()
     await db.refresh(task)
+    asyncio.create_task(_trigger_task_assignments())
     return _task_out(task)
 
 
@@ -220,6 +229,7 @@ async def delete_task(
         raise HTTPException(status_code=404, detail="Task not found")
     await db.delete(task)
     await db.commit()
+    asyncio.create_task(_trigger_task_assignments())
 
 
 @router.get("/retention/tasks/{task_id}/clients")

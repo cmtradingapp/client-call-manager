@@ -238,6 +238,19 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("user_preferences table migration applied")
+    # Migrate: ensure client_task_assignments lookup table exists (perf: replaces per-page N-queries)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS client_task_assignments ("
+            "accountid TEXT, "
+            "task_id INTEGER, "
+            "PRIMARY KEY (accountid, task_id))"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS idx_cta_accountid ON client_task_assignments (accountid)"
+        ))
+        await session.commit()
+    logger.info("client_task_assignments table migration applied")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")

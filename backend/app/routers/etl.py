@@ -1115,6 +1115,59 @@ async def rebuild_retention_mv() -> None:
     except Exception as score_err:
         logger.warning("rebuild_retention_mv: score computation failed: %s", score_err)
 
+    # Pre-compute task assignments for all clients so per-page lookup is O(1)
+    await rebuild_task_assignments()
+
+
+async def rebuild_task_assignments() -> None:
+    """Recompute client_task_assignments for all accounts in retention_mv.
+
+    Called after every MV rebuild and whenever tasks are created/updated/deleted.
+    Replaces the previous approach of running N per-page queries (one per task).
+    """
+    import json as _json
+    from sqlalchemy import select as _select
+    from app.models.retention_task import RetentionTask
+    from app.routers.retention_tasks import _build_task_where
+
+    try:
+        async with AsyncSessionLocal() as db:
+            tasks_result = await db.execute(_select(RetentionTask).order_by(RetentionTask.id))
+            tasks = tasks_result.scalars().all()
+
+            # Always truncate so stale assignments are removed even when no tasks exist
+            await db.execute(text("TRUNCATE TABLE client_task_assignments"))
+
+            if tasks:
+                assignments: list[dict] = []
+                for task in tasks:
+                    try:
+                        conditions = _json.loads(task.conditions)
+                    except Exception:
+                        continue
+                    t_where, t_params = _build_task_where(conditions)
+                    # _MV_ACTIVE uses :activity_days — supply default
+                    t_params.setdefault("activity_days", 35)
+                    t_where_clause = " AND ".join(t_where)
+                    q = text(f"SELECT m.accountid FROM retention_mv m WHERE {t_where_clause}")
+                    matched = await db.execute(q, t_params)
+                    for row in matched.fetchall():
+                        assignments.append({"accountid": str(row[0]), "task_id": task.id})
+
+                if assignments:
+                    await db.execute(
+                        text(
+                            "INSERT INTO client_task_assignments (accountid, task_id) "
+                            "VALUES (:accountid, :task_id) ON CONFLICT DO NOTHING"
+                        ),
+                        assignments,
+                    )
+
+            await db.commit()
+            logger.info("rebuild_task_assignments: stored %d assignments", len(assignments) if tasks else 0)
+    except Exception as ta_err:
+        logger.warning("rebuild_task_assignments failed: %s", ta_err)
+
 
 # ---------------------------------------------------------------------------
 # Retention materialized view refresh

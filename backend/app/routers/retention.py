@@ -531,34 +531,32 @@ async def get_retention_clients(
         except Exception as pnl_err:
             logger.warning("Could not fetch open PNL from replica: %s", pnl_err)
 
-        # Evaluate which retention tasks each client on this page matches
-        import json as _json
+        # Look up pre-computed task assignments for this page (single indexed query)
         from sqlalchemy import select as _select
         from app.models.retention_task import RetentionTask
-        from app.routers.retention_tasks import _build_task_where
         tasks_map: dict = {str(r["accountid"]): [] for r in rows}
         try:
-            all_tasks_result = await db.execute(
-                _select(RetentionTask).order_by(RetentionTask.id)
-            )
-            all_tasks = all_tasks_result.scalars().all()
             page_aids = [str(r["accountid"]) for r in rows]
-            if all_tasks and page_aids:
-                for task in all_tasks:
-                    conditions = _json.loads(task.conditions)
-                    t_where, t_params = _build_task_where(conditions)
-                    t_params["_page_aids"] = page_aids
-                    t_where_clause = " AND ".join(t_where + ["m.accountid = ANY(:_page_aids)"])
-                    t_result = await db.execute(
-                        text(f"SELECT m.accountid FROM retention_mv m WHERE {t_where_clause}"),
-                        t_params,
+            if page_aids:
+                all_tasks_result = await db.execute(
+                    _select(RetentionTask).order_by(RetentionTask.id)
+                )
+                tasks_by_id = {t.id: t for t in all_tasks_result.scalars().all()}
+                if tasks_by_id:
+                    assign_result = await db.execute(
+                        text(
+                            "SELECT accountid, task_id FROM client_task_assignments "
+                            "WHERE accountid = ANY(:ids)"
+                        ),
+                        {"ids": page_aids},
                     )
-                    for tr in t_result.fetchall():
-                        aid = str(tr[0])
-                        if aid in tasks_map:
+                    for row in assign_result.fetchall():
+                        aid = str(row[0])
+                        task = tasks_by_id.get(row[1])
+                        if aid in tasks_map and task:
                             tasks_map[aid].append({"name": task.name, "color": task.color or "grey"})
         except Exception as tasks_err:
-            logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
+            logger.warning("Could not load task assignments for page: %s", tasks_err)
 
         return {
             "total": total,
