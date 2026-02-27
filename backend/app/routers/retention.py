@@ -73,6 +73,8 @@ _SORT_COLS = {
     "equity":               "m.total_equity",
     "max_open_trade":       "m.max_open_trade",
     "max_volume":           "m.max_volume",
+    "win_rate":             "m.win_rate",
+    "avg_trade_size":       "m.avg_trade_size",
     "age":                  "EXTRACT(year FROM AGE(m.birth_date))",
 
     # --- computed numeric expressions ---
@@ -514,7 +516,9 @@ async def get_retention_clients(
                     m.total_credit AS credit,
                     m.total_equity AS equity,
                     m.max_open_trade,
-                    m.max_volume{_extra_sel},
+                    m.max_volume,
+                    m.win_rate,
+                    m.avg_trade_size{_extra_sel},
                     m.assigned_to,
                     m.agent_name,
                     m.sales_client_potential,
@@ -635,6 +639,8 @@ async def get_retention_clients(
                     "open_pnl": open_pnl_map.get(str(r["accountid"]), 0.0),
                     "max_open_trade": round(float(r["max_open_trade"]), 1) if r["max_open_trade"] is not None else None,
                     "max_volume": round(float(r["max_volume"]), 1) if r["max_volume"] is not None else None,
+                    "win_rate": round(float(r["win_rate"]), 1) if r["win_rate"] is not None else None,
+                    "avg_trade_size": round(float(r["avg_trade_size"]), 2) if r["avg_trade_size"] is not None else None,
                     "live_equity": round(float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0), 2),
                     "turnover": round(
                         float(r["max_volume"]) / (float(r["balance"]) + float(r["credit"]) + open_pnl_map.get(str(r["accountid"]), 0.0)), 1

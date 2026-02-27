@@ -29,7 +29,7 @@ function getPresetDates(preset: DatePreset): { from: string; to: string } {
 }
 
 const PAGE_SIZE = 50;
-type SortCol = 'accountid' | 'full_name' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
+type SortCol = 'accountid' | 'full_name' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'win_rate' | 'avg_trade_size' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
 
@@ -70,6 +70,8 @@ interface RetentionClient {
   max_open_trade: number | null;
   max_volume: number | null;
   turnover: number;
+  win_rate: number | null;
+  avg_trade_size: number | null;
   assigned_to: string | null;
   agent_name: string | null;
   tasks: TaskInfo[];
@@ -1074,6 +1076,28 @@ const DEFAULT_COLS: ColDef[] = [
     minWidth: '110px',
     filterType: 'numeric',
     renderCell: (c) => <span className="text-sm text-right text-gray-700">{c.max_volume != null ? fmtNum(c.max_volume, 1) : '\u2014'}</span>,
+  },
+  {
+    key: 'win_rate',
+    label: 'Win Rate',
+    sortKey: 'win_rate',
+    align: 'right',
+    minWidth: '100px',
+    filterType: 'none',
+    renderCell: (c) => (
+      <span className={`text-sm font-medium ${c.win_rate == null ? 'text-gray-400' : c.win_rate >= 50 ? 'text-green-600' : 'text-red-500'}`}>
+        {c.win_rate != null ? `${c.win_rate.toFixed(1)}%` : '—'}
+      </span>
+    ),
+  },
+  {
+    key: 'avg_trade_size',
+    label: 'Avg Trade Size',
+    sortKey: 'avg_trade_size',
+    align: 'right',
+    minWidth: '120px',
+    filterType: 'none',
+    renderCell: (c) => <span className="text-sm text-gray-700">{c.avg_trade_size != null ? fmtNum(c.avg_trade_size) : '—'}</span>,
   },
   {
     key: 'turnover',
