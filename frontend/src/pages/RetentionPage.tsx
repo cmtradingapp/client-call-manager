@@ -1335,6 +1335,70 @@ export function RetentionPage() {
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const activeCount = countActive(applied);
 
+  // ── Active filter chips ─────────────────────────────────────────────────
+  const filterChips = useMemo(() => {
+    const chips: { label: string; key: string; onDismiss: () => void }[] = [];
+    const opLabel = (op: string) => ({ eq: '=', gt: '>', lt: '<', gte: '≥', lte: '≤' }[op] ?? op);
+    const fmtD = (d: string) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+    const presetLabel: Record<string, string> = { today: 'Today', this_week: 'This Week', this_month: 'This Month' };
+    const dismiss = (fields: Partial<Filters>) => () => {
+      setApplied((prev) => ({ ...prev, ...fields }));
+      setDraft((prev) => ({ ...prev, ...fields }));
+      setPage(1);
+    };
+
+    if (applied.accountid) chips.push({ key: 'accountid', label: `Account ID contains "${applied.accountid}"`, onDismiss: dismiss({ accountid: '' }) });
+    if (applied.qual_date_from || applied.qual_date_to) chips.push({ key: 'qual_date', label: `Qual Date: ${fmtD(applied.qual_date_from)} – ${fmtD(applied.qual_date_to)}`, onDismiss: dismiss({ qual_date_from: '', qual_date_to: '' }) });
+    if (applied.trade_count_op && applied.trade_count_val) chips.push({ key: 'trade_count', label: `Trades ${opLabel(applied.trade_count_op)} ${applied.trade_count_val}`, onDismiss: dismiss({ trade_count_op: '', trade_count_val: '' }) });
+    if (applied.days_op && applied.days_val) chips.push({ key: 'days', label: `Days in Retention ${opLabel(applied.days_op)} ${applied.days_val}`, onDismiss: dismiss({ days_op: '', days_val: '' }) });
+    if (applied.profit_op && applied.profit_val) chips.push({ key: 'profit', label: `Total Profit ${opLabel(applied.profit_op)} ${applied.profit_val}`, onDismiss: dismiss({ profit_op: '', profit_val: '' }) });
+    if (applied.last_trade_preset && applied.last_trade_preset !== 'custom')
+      chips.push({ key: 'last_trade', label: `Last Trade: ${presetLabel[applied.last_trade_preset] ?? applied.last_trade_preset}`, onDismiss: dismiss({ last_trade_preset: '', last_trade_from: '', last_trade_to: '' }) });
+    else if (applied.last_trade_from || applied.last_trade_to)
+      chips.push({ key: 'last_trade', label: `Last Trade: ${fmtD(applied.last_trade_from)} – ${fmtD(applied.last_trade_to)}`, onDismiss: dismiss({ last_trade_preset: '', last_trade_from: '', last_trade_to: '' }) });
+    if (applied.days_from_last_trade_op && applied.days_from_last_trade_val) chips.push({ key: 'days_from_last_trade', label: `Days from Last Trade ${opLabel(applied.days_from_last_trade_op)} ${applied.days_from_last_trade_val}`, onDismiss: dismiss({ days_from_last_trade_op: '', days_from_last_trade_val: '' }) });
+    if (applied.deposit_count_op && applied.deposit_count_val) chips.push({ key: 'deposit_count', label: `Deposits ${opLabel(applied.deposit_count_op)} ${applied.deposit_count_val}`, onDismiss: dismiss({ deposit_count_op: '', deposit_count_val: '' }) });
+    if (applied.total_deposit_op && applied.total_deposit_val) chips.push({ key: 'total_deposit', label: `Total Deposit ${opLabel(applied.total_deposit_op)} ${applied.total_deposit_val}`, onDismiss: dismiss({ total_deposit_op: '', total_deposit_val: '' }) });
+    if (applied.balance_op && applied.balance_val) chips.push({ key: 'balance', label: `Balance ${opLabel(applied.balance_op)} ${applied.balance_val}`, onDismiss: dismiss({ balance_op: '', balance_val: '' }) });
+    if (applied.credit_op && applied.credit_val) chips.push({ key: 'credit', label: `Credit ${opLabel(applied.credit_op)} ${applied.credit_val}`, onDismiss: dismiss({ credit_op: '', credit_val: '' }) });
+    if (applied.equity_op && applied.equity_val) chips.push({ key: 'equity', label: `Equity ${opLabel(applied.equity_op)} ${applied.equity_val}`, onDismiss: dismiss({ equity_op: '', equity_val: '' }) });
+    if (applied.live_equity_op && applied.live_equity_val) chips.push({ key: 'live_equity', label: `Live Equity ${opLabel(applied.live_equity_op)} ${applied.live_equity_val}`, onDismiss: dismiss({ live_equity_op: '', live_equity_val: '' }) });
+    if (applied.max_open_trade_op && applied.max_open_trade_val) chips.push({ key: 'max_open_trade', label: `Max Open Trade ${opLabel(applied.max_open_trade_op)} ${applied.max_open_trade_val}`, onDismiss: dismiss({ max_open_trade_op: '', max_open_trade_val: '' }) });
+    if (applied.max_volume_op && applied.max_volume_val) chips.push({ key: 'max_volume', label: `Max Volume ${opLabel(applied.max_volume_op)} ${applied.max_volume_val}`, onDismiss: dismiss({ max_volume_op: '', max_volume_val: '' }) });
+    if (applied.turnover_op && applied.turnover_val) chips.push({ key: 'turnover', label: `Turnover ${opLabel(applied.turnover_op)} ${applied.turnover_val}`, onDismiss: dismiss({ turnover_op: '', turnover_val: '' }) });
+    if (applied.assigned_to) {
+      const agentName = agents.find((a) => a.id === applied.assigned_to)?.name ?? applied.assigned_to;
+      chips.push({ key: 'assigned_to', label: `Agent: ${agentName}`, onDismiss: dismiss({ assigned_to: '' }) });
+    }
+    if (applied.task_id) {
+      const taskName = taskList.find((t) => String(t.id) === applied.task_id)?.name ?? `Task #${applied.task_id}`;
+      chips.push({ key: 'task_id', label: `Task: ${taskName}`, onDismiss: dismiss({ task_id: '' }) });
+    }
+    if (applied.active) chips.push({ key: 'active', label: `Active: ${applied.active === 'true' ? 'Yes' : 'No'}`, onDismiss: dismiss({ active: '' }) });
+    if (applied.active_ftd) chips.push({ key: 'active_ftd', label: `Active FTD: ${applied.active_ftd === 'true' ? 'Yes' : 'No'}`, onDismiss: dismiss({ active_ftd: '' }) });
+
+    // Column header filters
+    for (const [colKey, cf] of Object.entries(colFilters)) {
+      if (!cf) continue;
+      const colLabel = COL_DEF_MAP[colKey]?.label ?? colKey;
+      const dismissCol = () => setColFilters((prev) => { const next = { ...prev }; delete next[colKey]; return next; });
+      if (cf.type === 'text' && cf.value) {
+        chips.push({ key: `col_${colKey}`, label: `${colLabel} contains "${cf.value}"`, onDismiss: dismissCol });
+      } else if (cf.type === 'numeric' && cf.val) {
+        const lbl = cf.op === 'between' ? `${colLabel} between ${cf.val} – ${cf.val2 ?? ''}` : `${colLabel} ${opLabel(cf.op)} ${cf.val}`;
+        chips.push({ key: `col_${colKey}`, label: lbl, onDismiss: dismissCol });
+      } else if (cf.type === 'date') {
+        if (cf.preset && cf.preset !== 'custom') {
+          chips.push({ key: `col_${colKey}`, label: `${colLabel}: ${presetLabel[cf.preset] ?? cf.preset}`, onDismiss: dismissCol });
+        } else if (cf.from) {
+          const rangeLabel = cf.to ? `${fmtD(cf.from)} – ${fmtD(cf.to)}` : `from ${fmtD(cf.from)}`;
+          chips.push({ key: `col_${colKey}`, label: `${colLabel}: ${rangeLabel}`, onDismiss: dismissCol });
+        }
+      }
+    }
+    return chips;
+  }, [applied, colFilters, agents, taskList]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check if order differs from default
   const isCustomOrder = useMemo(
     () => colOrder.join(',') !== DEFAULT_COL_ORDER.join(','),
@@ -1556,6 +1620,21 @@ export function RetentionPage() {
           </div>
         )}
       </div>
+
+      {/* Active filter chips bar */}
+      {filterChips.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-lg">
+          {filterChips.map((chip) => (
+            <span key={chip.key} className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-blue-200 text-blue-800 text-xs font-medium rounded-full shadow-sm">
+              {chip.label}
+              <button onClick={chip.onDismiss} className="ml-0.5 text-blue-400 hover:text-blue-700 leading-none text-sm font-bold" aria-label={`Remove filter: ${chip.label}`}>×</button>
+            </span>
+          ))}
+          <button onClick={() => { clearFilters(); clearColFilters(); }} className="ml-auto text-xs text-blue-600 hover:text-blue-800 font-medium underline whitespace-nowrap">
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
