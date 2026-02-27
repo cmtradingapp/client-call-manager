@@ -131,6 +131,11 @@ async def lifespan(app: FastAPI):
         await session.execute(_text("ALTER TABLE ant_acc ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(50)"))
         await session.commit()
     logger.info("ant_acc.assigned_to column migration applied")
+    # Add full_name column to ant_acc if missing (CLAUD-22)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text("ALTER TABLE ant_acc ADD COLUMN IF NOT EXISTS full_name VARCHAR(400)"))
+        await session.commit()
+    logger.info("ant_acc.full_name column migration applied")
     # Recreate vtiger_users with correct schema (drop old schema if columns changed)
     async with AsyncSessionLocal() as session:
         await session.execute(_text("DROP TABLE IF EXISTS vtiger_users"))

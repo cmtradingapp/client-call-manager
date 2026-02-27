@@ -31,18 +31,19 @@ _TRADES_UPSERT = (
     " last_modified = EXCLUDED.last_modified"
 )
 
-_ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date, assigned_to FROM report.ant_acc"
+_ANT_ACC_SELECT = "SELECT accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date, assigned_to, full_name FROM report.ant_acc"
 
 _ANT_ACC_UPSERT = (
-    "INSERT INTO ant_acc (accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date, assigned_to)"
-    " VALUES (:accountid, :client_qualification_date, :modifiedtime, :is_test_account, :sales_client_potential, :birth_date, :assigned_to)"
+    "INSERT INTO ant_acc (accountid, client_qualification_date, modifiedtime, is_test_account, sales_client_potential, birth_date, assigned_to, full_name)"
+    " VALUES (:accountid, :client_qualification_date, :modifiedtime, :is_test_account, :sales_client_potential, :birth_date, :assigned_to, :full_name)"
     " ON CONFLICT (accountid) DO UPDATE SET"
     " client_qualification_date = EXCLUDED.client_qualification_date,"
     " modifiedtime = EXCLUDED.modifiedtime,"
     " is_test_account = EXCLUDED.is_test_account,"
     " sales_client_potential = EXCLUDED.sales_client_potential,"
     " birth_date = EXCLUDED.birth_date,"
-    " assigned_to = EXCLUDED.assigned_to"
+    " assigned_to = EXCLUDED.assigned_to,"
+    " full_name = EXCLUDED.full_name"
 )
 
 _ant_acc_map = lambda r: {  # noqa: E731
@@ -53,6 +54,7 @@ _ant_acc_map = lambda r: {  # noqa: E731
     "sales_client_potential": str(r["sales_client_potential"]) if r["sales_client_potential"] is not None else None,
     "birth_date": r["birth_date"].date() if hasattr(r["birth_date"], "date") else r["birth_date"],
     "assigned_to": str(r["assigned_to"]) if r["assigned_to"] is not None else None,
+    "full_name": str(r["full_name"]).replace("\x00", "").strip() if r["full_name"] is not None else None,
 }
 
 
@@ -995,6 +997,7 @@ def _build_mv_sql(extra_cols: list) -> str:
         "            )" + vta_extras_cte + "\n"
         "            SELECT\n"
         "                a.accountid,\n"
+        "                TRIM(COALESCE(a.full_name, '')) AS full_name,\n"
         "                a.client_qualification_date,\n"
         "                a.sales_client_potential,\n"
         "                a.birth_date,\n"
