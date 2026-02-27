@@ -1,9 +1,9 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import require_admin
@@ -78,4 +78,69 @@ async def list_audit_log(
         "page": page,
         "page_size": page_size,
         "pages": (total + page_size - 1) // page_size if total > 0 else 0,
+    }
+
+
+async def _aggregate_period(db: AsyncSession, since: datetime) -> list[dict]:
+    """Aggregate audit_log counts per agent since the given timestamp."""
+    total_col = func.count().label("total")
+    query = (
+        select(
+            AuditLog.agent_username,
+            func.sum(case((AuditLog.action_type == "call_initiated", 1), else_=0)).label("calls"),
+            func.sum(case((AuditLog.action_type == "note_added", 1), else_=0)).label("notes"),
+            func.sum(case((AuditLog.action_type == "status_change", 1), else_=0)).label("status_changes"),
+            func.sum(case((AuditLog.action_type == "whatsapp_opened", 1), else_=0)).label("whatsapp"),
+            total_col,
+        )
+        .where(AuditLog.timestamp >= since)
+        .group_by(AuditLog.agent_username)
+        .order_by(total_col.desc())
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    return [
+        {
+            "agent_username": row.agent_username,
+            "calls": row.calls,
+            "notes": row.notes,
+            "status_changes": row.status_changes,
+            "whatsapp": row.whatsapp,
+            "total": row.total,
+        }
+        for row in rows
+    ]
+
+
+@router.get("/admin/activity-dashboard")
+async def activity_dashboard(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    """Return per-agent activity stats for today, this week, this month. Admin-only."""
+    now = datetime.now(timezone.utc)
+
+    # Today: start of current UTC day
+    start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # This week: Monday 00:00 UTC
+    days_since_monday = now.weekday()  # Monday=0
+    start_of_week = (now - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    # This month: 1st of current month 00:00 UTC
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    today_data = await _aggregate_period(db, start_of_today)
+    week_data = await _aggregate_period(db, start_of_week)
+    month_data = await _aggregate_period(db, start_of_month)
+
+    return {
+        "periods": {
+            "today": today_data,
+            "this_week": week_data,
+            "this_month": month_data,
+        },
+        "last_updated": now.isoformat(),
     }
