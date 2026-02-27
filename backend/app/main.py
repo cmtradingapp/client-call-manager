@@ -13,7 +13,7 @@ from app.pg_database import AsyncSessionLocal, init_pg
 from app.replica_database import init_replica
 from app.routers import calls, clients, filters
 from app.routers.call_mappings import router as call_mappings_router
-from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, hourly_sync_extensions, refresh_retention_mv, rebuild_retention_mv, router as etl_router
+from app.routers.etl import daily_full_sync_all, incremental_sync_ant_acc, incremental_sync_dealio_users, incremental_sync_mtt, incremental_sync_trades, incremental_sync_vta, hourly_sync_vtiger_users, hourly_sync_vtiger_campaigns, hourly_sync_extensions, refresh_retention_mv, rebuild_retention_mv, sync_open_pnl_background, router as etl_router
 from app.routers.retention import router as retention_router
 from app.routers.retention_tasks import router as retention_tasks_router
 from app.routers.client_scoring import router as client_scoring_router
@@ -251,6 +251,16 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("client_task_assignments table migration applied")
+    # Migrate: ensure open_pnl_cache table exists (local mirror of dealio.positions aggregated by login)
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS open_pnl_cache ("
+            "login TEXT PRIMARY KEY, "
+            "pnl NUMERIC NOT NULL DEFAULT 0, "
+            "updated_at TIMESTAMPTZ DEFAULT NOW())"
+        ))
+        await session.commit()
+    logger.info("open_pnl_cache table migration applied")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")
@@ -339,6 +349,13 @@ async def lifespan(app: FastAPI):
         "interval",
         minutes=3,
     )
+    if _ReplicaSession is not None:
+        scheduler.add_job(
+            sync_open_pnl_background,
+            "interval",
+            minutes=3,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
+        )
     scheduler.start()
     logger.info("ETL scheduler started — incremental sync every 30 min, vtiger/extensions hourly full refresh, daily full sync at midnight")
 

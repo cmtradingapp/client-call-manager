@@ -26,7 +26,7 @@ _TASK_COL_SQL: Dict[str, str] = {
     "days_in_retention":    "(CURRENT_DATE - m.client_qualification_date)",
     "deposit_count":        "m.deposit_count",
     "total_deposit":        "m.total_deposit",
-    "days_from_last_trade": "(CURRENT_DATE - m.last_close_time::date)",
+    "days_from_last_trade": "(CURRENT_DATE - m.last_trade_date::date)",
     "sales_potential":      "NULLIF(TRIM(m.sales_client_potential), '')::numeric",
     "age":                  "EXTRACT(year FROM AGE(m.birth_date))::numeric",
     "assigned_to":          "m.assigned_to",
@@ -92,8 +92,8 @@ def _build_task_where(
                 cast_value = value
             params[f"cond_{i}"] = cast_value
             where_list.append(
-                f"m.last_close_time IS NOT NULL"
-                f" AND (CURRENT_DATE - m.last_close_time::date) {sql_op} :cond_{i}"
+                f"m.last_trade_date IS NOT NULL"
+                f" AND (CURRENT_DATE - m.last_trade_date::date) {sql_op} :cond_{i}"
             )
             continue
 

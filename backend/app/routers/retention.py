@@ -60,7 +60,7 @@ _SORT_COLS = {
     # --- date / timestamp columns (already correct types in MV) ---
     "client_qualification_date": "m.client_qualification_date",
     "last_trade_date":      "m.last_trade_date",
-    "days_from_last_trade": "m.last_close_time",   # timestamp; NULLS LAST handles missing
+    "days_from_last_trade": "m.last_trade_date",   # sort by when last trade was opened
 
     # --- integer/numeric columns (native numeric type in MV) ---
     "days_in_retention":    "(CURRENT_DATE - m.client_qualification_date)",
@@ -282,9 +282,9 @@ async def get_retention_clients(
             params["last_trade_to"] = date.fromisoformat(last_trade_to)
 
         if days_from_last_trade_op and days_from_last_trade_val is not None:
-            cond = _num_cond(days_from_last_trade_op, "(CURRENT_DATE - m.last_close_time::date)", "days_from_last_trade_val")
+            cond = _num_cond(days_from_last_trade_op, "(CURRENT_DATE - m.last_trade_date::date)", "days_from_last_trade_val")
             if cond:
-                where.append(f"m.last_close_time IS NOT NULL AND {cond}")
+                where.append(f"m.last_trade_date IS NOT NULL AND {cond}")
                 params["days_from_last_trade_val"] = int(days_from_last_trade_val)
 
         if deposit_count_op and deposit_count_val is not None:
@@ -502,8 +502,8 @@ async def get_retention_clients(
                     m.trade_count,
                     m.total_profit,
                     m.last_trade_date,
-                    CASE WHEN m.last_close_time IS NOT NULL
-                         THEN (CURRENT_DATE - m.last_close_time::date) END AS days_from_last_trade,
+                    CASE WHEN m.last_trade_date IS NOT NULL
+                         THEN (CURRENT_DATE - m.last_trade_date::date) END AS days_from_last_trade,
                     {_MV_ACTIVE} AS active,
                     {_MV_ACTIVE_FTD} AS active_ftd,
                     m.deposit_count,
@@ -529,13 +529,11 @@ async def get_retention_clients(
         )
         rows = rows_result.mappings().all()
 
-        # Fetch Open PNL live from the replica for this page's accounts
+        # Fetch Open PNL from local open_pnl_cache (synced from dealio.positions every 3 minutes)
         open_pnl_map: dict = {}
         try:
-            from app.replica_database import _ReplicaSession
-            if _ReplicaSession is not None and rows:
+            if rows:
                 account_ids = [str(r["accountid"]) for r in rows]
-                # Map accounts -> logins via local vtiger_trading_accounts
                 login_result = await db.execute(
                     text("SELECT login, vtigeraccountid FROM vtiger_trading_accounts WHERE vtigeraccountid = ANY(:ids)"),
                     {"ids": account_ids},
@@ -544,17 +542,16 @@ async def get_retention_clients(
                 logins = [lr[0] for lr in login_rows]
                 login_to_account = {lr[0]: str(lr[1]) for lr in login_rows}
                 if logins:
-                    async with _ReplicaSession() as replica:
-                        pnl_result = await replica.execute(
-                            text("SELECT login, SUM(computedprofit) FROM dealio.positions WHERE login = ANY(:logins) GROUP BY login"),
-                            {"logins": logins},
-                        )
-                        for pnl_row in pnl_result.fetchall():
-                            acct = login_to_account.get(pnl_row[0])
-                            if acct:
-                                open_pnl_map[acct] = open_pnl_map.get(acct, 0.0) + (pnl_row[1] or 0.0)
+                    pnl_result = await db.execute(
+                        text("SELECT login, pnl FROM open_pnl_cache WHERE login = ANY(:logins)"),
+                        {"logins": logins},
+                    )
+                    for pnl_row in pnl_result.fetchall():
+                        acct = login_to_account.get(pnl_row[0])
+                        if acct:
+                            open_pnl_map[acct] = open_pnl_map.get(acct, 0.0) + float(pnl_row[1] or 0)
         except Exception as pnl_err:
-            logger.warning("Could not fetch open PNL from replica: %s", pnl_err)
+            logger.warning("Could not fetch open PNL from local cache: %s", pnl_err)
 
         # Evaluate retention tasks for this page using a single UNION ALL query.
         # A CTE restricts the MV to the 50 page accounts first (index scan),
@@ -588,10 +585,11 @@ async def get_retention_clients(
                             w.replace(":cond_", f":t{tidx}_cond_")
                             for w in t_where
                         ]
-                        t_clause = " AND ".join(prefixed_where + ["p.accountid = ANY(:_page_aids)"])
+                        # _build_task_where uses "m." prefix — CTE must use alias "m" to match
+                        t_clause = " AND ".join(prefixed_where)
                         union_parts.append(
-                            f"SELECT p.accountid, {tidx}::int AS tidx "
-                            f"FROM page_accts p WHERE {t_clause}"
+                            f"SELECT m.accountid, {tidx}::int AS tidx "
+                            f"FROM page_accts m WHERE {t_clause}"
                         )
                     if union_parts:
                         union_sql = " UNION ALL ".join(union_parts)

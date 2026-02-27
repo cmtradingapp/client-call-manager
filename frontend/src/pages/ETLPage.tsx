@@ -165,6 +165,7 @@ interface LastRecord {
 
 interface StatusData {
   trades_row_count: number;
+  open_pnl_row_count: number;
   ant_acc_row_count: number;
   vta_row_count: number;
   mtt_row_count: number;
@@ -173,6 +174,7 @@ interface StatusData {
   vtiger_campaigns_row_count: number;
   extensions_row_count: number;
   trades_last: LastRecord | null;
+  open_pnl_last: LastRecord | null;
   ant_acc_last: LastRecord | null;
   vta_last: LastRecord | null;
   mtt_last: LastRecord | null;
@@ -207,6 +209,7 @@ export function ETLPage() {
 
   const sections = [
     { key: 'trades', label: 'Trades', source: 'dealio.trades_mt4', endpoint: '/etl/sync-trades', count: data?.trades_row_count ?? null, last: data?.trades_last ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 30 min using last_modified (3h lookback).' },
+    { key: 'open_pnl', label: 'Trades - Open', source: 'dealio.positions', endpoint: '/etl/sync-open-pnl', count: data?.open_pnl_row_count ?? null, last: data?.open_pnl_last ?? null, desc: 'Aggregated open positions (login → PNL) synced from dealio.positions every 3 minutes via full truncate+reload. Closed trades are removed automatically. Used by Retention Manager instead of live replica queries.' },
     { key: 'dealio_users', label: 'Dealio Users', source: 'dealio.users', endpoint: '/etl/sync-dealio-users', count: data?.dealio_users_row_count ?? null, last: data?.dealio_users_last ?? null, desc: 'Full refresh from dealio replica. Incremental sync runs every 30 min using lastupdate (3h lookback). Includes equity field.' },
     { key: 'ant_acc', label: 'Accounts', source: 'report.ant_acc', endpoint: '/etl/sync-ant-acc', count: data?.ant_acc_row_count ?? null, last: data?.ant_acc_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using modifiedtime (3h lookback).' },
     { key: 'vta', label: 'Trading Accounts', source: 'report.vtiger_trading_accounts', endpoint: '/etl/sync-vta', count: data?.vta_row_count ?? null, last: data?.vta_last ?? null, desc: 'Full refresh from MSSQL. Incremental sync runs every 30 min using last_update (3h lookback).' },

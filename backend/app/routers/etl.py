@@ -949,7 +949,7 @@ def _build_mv_sql(extra_cols: list) -> str:
         "                    COUNT(t.ticket) AS trade_count,\n"
         "                    COALESCE(SUM(t.computed_profit), 0) AS total_profit,\n"
         "                    MAX(t.open_time) AS last_trade_date,\n"
-        "                    MAX(t.open_time) AS last_close_time" + trades_agg_extras + "\n"
+        "                    MAX(CASE WHEN t.close_time > '1971-01-01' THEN t.close_time END) AS last_close_time" + trades_agg_extras + "\n"
         "                FROM qualifying_logins ql\n"
         "                LEFT JOIN trades_mt4 t ON t.login = ql.login AND t.cmd IN (0, 1)\n"
         "                    AND (t.symbol IS NULL OR LOWER(t.symbol) NOT IN (" + sq + "inactivity" + sq + ", " + sq + "zeroingusd" + sq + ", " + sq + "spread" + sq + "))\n"
@@ -1336,6 +1336,82 @@ async def sync_extensions(
     return {"status": "started", "log_id": log.id}
 
 
+async def _run_full_sync_open_pnl(log_id: int) -> None:
+    """Sync aggregated open PNL per login from dealio.positions into local open_pnl_cache."""
+    from app.replica_database import _ReplicaSession
+    if _ReplicaSession is None:
+        await _update_log(log_id, "error", error="Replica database not configured")
+        return
+    try:
+        async with _ReplicaSession() as replica:
+            result = await replica.execute(
+                text("SELECT login, SUM(computedprofit) AS pnl FROM dealio.positions GROUP BY login")
+            )
+            rows = result.fetchall()
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("TRUNCATE TABLE open_pnl_cache"))
+            if rows:
+                await db.execute(
+                    text(
+                        "INSERT INTO open_pnl_cache (login, pnl, updated_at) "
+                        "VALUES (:login, :pnl, NOW())"
+                    ),
+                    [{"login": str(r[0]), "pnl": float(r[1] or 0)} for r in rows],
+                )
+            await db.commit()
+
+        await _update_log(log_id, "completed", rows_synced=len(rows))
+        logger.info("sync_open_pnl: synced %d logins", len(rows))
+    except Exception as e:
+        await _update_log(log_id, "error", error=str(e))
+        logger.error("sync_open_pnl failed: %s", e)
+
+
+async def sync_open_pnl_background() -> None:
+    """Scheduler-triggered silent sync of open_pnl_cache — no ETL log entry."""
+    from app.replica_database import _ReplicaSession
+    if _ReplicaSession is None:
+        return
+    try:
+        async with _ReplicaSession() as replica:
+            result = await replica.execute(
+                text("SELECT login, SUM(computedprofit) AS pnl FROM dealio.positions GROUP BY login")
+            )
+            rows = result.fetchall()
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("TRUNCATE TABLE open_pnl_cache"))
+            if rows:
+                await db.execute(
+                    text(
+                        "INSERT INTO open_pnl_cache (login, pnl, updated_at) "
+                        "VALUES (:login, :pnl, NOW())"
+                    ),
+                    [{"login": str(r[0]), "pnl": float(r[1] or 0)} for r in rows],
+                )
+            await db.commit()
+        logger.info("sync_open_pnl_background: synced %d logins", len(rows))
+    except Exception as e:
+        logger.warning("sync_open_pnl_background failed: %s", e)
+
+
+@router.post("/etl/sync-open-pnl")
+async def sync_open_pnl(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+) -> dict:
+    if await _is_running("open_pnl"):
+        return {"status": "already_running"}
+    log = EtlSyncLog(sync_type="open_pnl_full", status="running")
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    background_tasks.add_task(_run_full_sync_open_pnl, log.id)
+    return {"status": "started", "log_id": log.id}
+
+
 @router.get("/etl/sync-status")
 async def sync_status(
     db: AsyncSession = Depends(get_db),
@@ -1354,6 +1430,7 @@ async def sync_status(
     vtiger_users_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_users"))).scalar() or 0
     vtiger_campaigns_count = (await db.execute(text("SELECT COUNT(*) FROM vtiger_campaigns"))).scalar() or 0
     extensions_count = (await db.execute(text("SELECT COUNT(*) FROM extensions"))).scalar() or 0
+    open_pnl_count = (await db.execute(text("SELECT COUNT(*) FROM open_pnl_cache"))).scalar() or 0
 
     def _last_row(row) -> dict | None:
         if row is None:
@@ -1368,6 +1445,7 @@ async def sync_status(
     vtiger_users_last = _last_row((await db.execute(text("SELECT id, NULL FROM vtiger_users LIMIT 1"))).first())
     vtiger_campaigns_last = _last_row((await db.execute(text("SELECT crmid, NULL FROM vtiger_campaigns LIMIT 1"))).first())
     extensions_last = _last_row((await db.execute(text("SELECT extension, synced_at FROM extensions ORDER BY synced_at DESC NULLS LAST LIMIT 1"))).first())
+    open_pnl_last = _last_row((await db.execute(text("SELECT login, updated_at FROM open_pnl_cache ORDER BY updated_at DESC NULLS LAST LIMIT 1"))).first())
 
     return {
         "trades_row_count": trades_count,
@@ -1378,6 +1456,7 @@ async def sync_status(
         "vtiger_users_row_count": vtiger_users_count,
         "vtiger_campaigns_row_count": vtiger_campaigns_count,
         "extensions_row_count": extensions_count,
+        "open_pnl_row_count": open_pnl_count,
         "trades_last": trades_last,
         "ant_acc_last": ant_acc_last,
         "vta_last": vta_last,
@@ -1386,6 +1465,7 @@ async def sync_status(
         "vtiger_users_last": vtiger_users_last,
         "vtiger_campaigns_last": vtiger_campaigns_last,
         "extensions_last": extensions_last,
+        "open_pnl_last": open_pnl_last,
         "logs": [
             {
                 "id": r["id"],
