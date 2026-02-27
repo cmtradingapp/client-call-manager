@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import axios from 'axios';
 
@@ -32,6 +32,17 @@ const PAGE_SIZE = 50;
 type SortCol = 'accountid' | 'full_name' | 'client_qualification_date' | 'days_in_retention' | 'trade_count' | 'total_profit' | 'last_trade_date' | 'days_from_last_trade' | 'active' | 'active_ftd' | 'deposit_count' | 'total_deposit' | 'balance' | 'credit' | 'equity' | 'open_pnl' | 'live_equity' | 'max_open_trade' | 'max_volume' | 'turnover' | 'sales_client_potential' | 'age' | 'agent_name' | 'score';
 type NumOp = '' | 'eq' | 'gt' | 'gte' | 'lt' | 'lte';
 type BoolFilter = '' | 'true' | 'false';
+
+// ── Per-column header filters ──────────────────────────────────────────────
+type ColNumOp = 'gt' | 'lt' | 'eq' | 'gte' | 'lte' | 'between';
+type ColDatePreset = 'today' | 'this_week' | 'this_month' | 'custom';
+
+type ColFilter =
+  | { type: 'text'; value: string }
+  | { type: 'numeric'; op: ColNumOp; val: string; val2?: string }
+  | { type: 'date'; preset?: ColDatePreset; from?: string; to?: string };
+
+type ColFilters = Partial<Record<string, ColFilter>>;
 
 interface TaskInfo {
   name: string;
@@ -169,6 +180,191 @@ function countActive(f: Filters) {
     f.active,
     f.active_ftd,
   ].filter(Boolean).length;
+}
+
+// ── ColFilter helper components ───────────────────────────────────────────
+
+function ColTextFilter({ col, colFilters, setColFilters }: {
+  col: string;
+  colFilters: ColFilters;
+  setColFilters: React.Dispatch<React.SetStateAction<ColFilters>>;
+}) {
+  const filter = colFilters[col];
+  const value = filter?.type === 'text' ? filter.value : '';
+
+  const handleChange = (v: string) => {
+    setColFilters((prev) => {
+      if (!v) {
+        const next = { ...prev };
+        delete next[col];
+        return next;
+      }
+      return { ...prev, [col]: { type: 'text', value: v } };
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-0.5 mt-1" onClick={(e) => e.stopPropagation()}>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="Filter..."
+        className="w-full min-w-0 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+      />
+      {value && (
+        <button
+          onClick={() => handleChange('')}
+          className="text-gray-400 hover:text-gray-600 text-xs leading-none flex-shrink-0 ml-0.5"
+          title="Clear"
+        >
+          x
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ColNumericFilter({ col, colFilters, setColFilters }: {
+  col: string;
+  colFilters: ColFilters;
+  setColFilters: React.Dispatch<React.SetStateAction<ColFilters>>;
+}) {
+  const filter = colFilters[col];
+  const op: ColNumOp = (filter?.type === 'numeric' ? filter.op : 'gt') as ColNumOp;
+  const val = filter?.type === 'numeric' ? filter.val : '';
+  const val2 = filter?.type === 'numeric' ? (filter.val2 ?? '') : '';
+
+  const update = (newOp: ColNumOp, newVal: string, newVal2?: string) => {
+    setColFilters((prev) => {
+      if (!newVal) {
+        const next = { ...prev };
+        delete next[col];
+        return next;
+      }
+      const entry: ColFilter = { type: 'numeric', op: newOp, val: newVal };
+      if (newOp === 'between' && newVal2) (entry as { type: 'numeric'; op: ColNumOp; val: string; val2?: string }).val2 = newVal2;
+      return { ...prev, [col]: entry };
+    });
+  };
+
+  return (
+    <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-0.5">
+        <select
+          value={op}
+          onChange={(e) => update(e.target.value as ColNumOp, val, val2)}
+          className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white flex-shrink-0"
+        >
+          <option value="gt">&gt;</option>
+          <option value="lt">&lt;</option>
+          <option value="eq">=</option>
+          <option value="gte">&ge;</option>
+          <option value="lte">&le;</option>
+          <option value="between">btw</option>
+        </select>
+        <input
+          type="number"
+          value={val}
+          onChange={(e) => update(op, e.target.value, val2)}
+          placeholder="Value"
+          className="min-w-0 w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+        />
+        {val && (
+          <button
+            onClick={() => update(op, '', '')}
+            className="text-gray-400 hover:text-gray-600 text-xs leading-none flex-shrink-0"
+            title="Clear"
+          >
+            x
+          </button>
+        )}
+      </div>
+      {op === 'between' && val && (
+        <input
+          type="number"
+          value={val2}
+          onChange={(e) => update(op, val, e.target.value)}
+          placeholder="To"
+          className="w-full border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+        />
+      )}
+    </div>
+  );
+}
+
+function ColDateFilter({ col, colFilters, setColFilters }: {
+  col: string;
+  colFilters: ColFilters;
+  setColFilters: React.Dispatch<React.SetStateAction<ColFilters>>;
+}) {
+  const filter = colFilters[col];
+  const preset = filter?.type === 'date' ? (filter.preset ?? '') : '';
+  const from = filter?.type === 'date' ? (filter.from ?? '') : '';
+  const to = filter?.type === 'date' ? (filter.to ?? '') : '';
+
+  const today = new Date().toISOString().slice(0, 10);
+  const getPresetRange = (p: ColDatePreset): { from: string; to: string } => {
+    const now = new Date();
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    switch (p) {
+      case 'today': return { from: today, to: today };
+      case 'this_week': {
+        const day = now.getDay();
+        const monday = new Date(now); monday.setDate(now.getDate() - ((day + 6) % 7));
+        return { from: fmt(monday), to: today };
+      }
+      case 'this_month': return { from: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), to: today };
+      default: return { from: '', to: '' };
+    }
+  };
+
+  const update = (p: string, f?: string, t?: string) => {
+    setColFilters((prev) => {
+      if (!p) {
+        const next = { ...prev };
+        delete next[col];
+        return next;
+      }
+      if (p === 'custom') {
+        return { ...prev, [col]: { type: 'date', preset: 'custom', from: f ?? '', to: t ?? '' } };
+      }
+      const range = getPresetRange(p as ColDatePreset);
+      return { ...prev, [col]: { type: 'date', preset: p as ColDatePreset, from: range.from, to: range.to } };
+    });
+  };
+
+  return (
+    <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
+      <select
+        value={preset}
+        onChange={(e) => update(e.target.value)}
+        className="w-full border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+      >
+        <option value="">Any</option>
+        <option value="today">Today</option>
+        <option value="this_week">This Week</option>
+        <option value="this_month">This Month</option>
+        <option value="custom">Custom</option>
+      </select>
+      {preset === 'custom' && (
+        <div className="flex flex-col gap-0.5">
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => update('custom', e.target.value, to)}
+            className="w-full border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+          />
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => update('custom', from, e.target.value)}
+            className="w-full border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SortIcon({ col, sortBy, sortDir }: { col: SortCol; sortBy: SortCol; sortDir: 'asc' | 'desc' }) {
@@ -680,20 +876,48 @@ export function RetentionPage() {
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
   const [taskList, setTaskList] = useState<{ id: number; name: string }[]>([]);
   const [selectedClient, setSelectedClient] = useState<RetentionClient | null>(null);
+  const [colFilters, setColFilters] = useState<ColFilters>({});
+  // Debounced colFilters that actually trigger the API call
+  const [debouncedColFilters, setDebouncedColFilters] = useState<ColFilters>({});
+  const colFiltersDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api.get('/retention/agents').then((r) => setAgents(r.data)).catch(() => {});
     api.get('/retention/tasks').then((r) => setTaskList(r.data)).catch(() => {});
   }, []);
 
-  const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters, actDays: string) => {
+  const load = async (p: number, col: SortCol, dir: 'asc' | 'desc', f: Filters, actDays: string, cf: ColFilters) => {
     setLoading(true);
     setError('');
+
+    // Build col-filter params
+    const colFilterParams: Record<string, string> = {};
+    for (const [key, filter] of Object.entries(cf)) {
+      if (!filter) continue;
+      if (filter.type === 'text' && filter.value) {
+        colFilterParams[`filter_${key}`] = filter.value;
+      } else if (filter.type === 'numeric' && filter.val) {
+        colFilterParams[`filter_${key}_op`] = filter.op;
+        colFilterParams[`filter_${key}_val`] = filter.val;
+        if (filter.op === 'between' && filter.val2) {
+          colFilterParams[`filter_${key}_val2`] = filter.val2;
+        }
+      } else if (filter.type === 'date') {
+        if (filter.preset && filter.preset !== 'custom') {
+          colFilterParams[`filter_${key}_preset`] = filter.preset;
+        } else if (filter.from) {
+          colFilterParams[`filter_${key}_from`] = filter.from;
+          if (filter.to) colFilterParams[`filter_${key}_to`] = filter.to;
+        }
+      }
+    }
+
     try {
       const res = await api.get('/retention/clients', {
         params: {
           page: p, page_size: PAGE_SIZE, sort_by: col, sort_dir: dir,
           accountid: f.accountid,
+          ...colFilterParams,
           qual_date_from: f.qual_date_from || undefined,
           qual_date_to: f.qual_date_to || undefined,
           trade_count_op: f.trade_count_op, trade_count_val: f.trade_count_val || undefined,
@@ -725,7 +949,19 @@ export function RetentionPage() {
     }
   };
 
-  useEffect(() => { load(page, sortBy, sortDir, applied, activityDays); }, [page, sortBy, sortDir, applied, activityDays]);
+  // Debounce colFilters changes → update debouncedColFilters after 400ms
+  useEffect(() => {
+    if (colFiltersDebounceRef.current) clearTimeout(colFiltersDebounceRef.current);
+    colFiltersDebounceRef.current = setTimeout(() => {
+      setDebouncedColFilters(colFilters);
+      setPage(1);
+    }, 400);
+    return () => {
+      if (colFiltersDebounceRef.current) clearTimeout(colFiltersDebounceRef.current);
+    };
+  }, [colFilters]);
+
+  useEffect(() => { load(page, sortBy, sortDir, applied, activityDays, debouncedColFilters); }, [page, sortBy, sortDir, applied, activityDays, debouncedColFilters]);
 
   const handleSort = (col: SortCol) => {
     if (sortBy === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -735,13 +971,13 @@ export function RetentionPage() {
 
   const applyFilters = () => { setApplied({ ...draft }); setPage(1); setActivityDays(activityDays); };
   const clearFilters = () => { setDraft(EMPTY_FILTERS); setApplied(EMPTY_FILTERS); setPage(1); };
+  const clearColFilters = () => { setColFilters({}); };
   const setField = <K extends keyof Filters>(key: K, val: Filters[K]) => setDraft((prev) => ({ ...prev, [key]: val }));
+
+  const activeColFilterCount = useMemo(() => Object.keys(colFilters).length, [colFilters]);
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
   const activeCount = countActive(applied);
-
-  const thClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
-  const thClassRight = 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap';
 
   // ── Virtual scrolling setup ──
   const ROW_HEIGHT = 44; // estimated row height in px
@@ -908,10 +1144,21 @@ export function RetentionPage() {
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-          <span className="text-sm text-gray-600">
-            {loading ? 'Loading…' : `${data?.total?.toLocaleString() ?? 0} accounts${activeCount > 0 ? ' (filtered)' : ''} — showing ${((page - 1) * PAGE_SIZE) + 1}–${Math.min(page * PAGE_SIZE, data?.total ?? 0)}`}
-          </span>
+        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">
+              {loading ? 'Loading…' : `${data?.total?.toLocaleString() ?? 0} accounts${activeCount > 0 ? ' (filtered)' : ''} — showing ${((page - 1) * PAGE_SIZE) + 1}–${Math.min(page * PAGE_SIZE, data?.total ?? 0)}`}
+            </span>
+            {activeColFilterCount > 0 && (
+              <button
+                onClick={clearColFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100"
+                title="Clear all column filters"
+              >
+                Clear Column Filters ({activeColFilterCount})
+              </button>
+            )}
+          </div>
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1 || loading} className="px-3 py-1 text-xs rounded-md border border-gray-300 disabled:opacity-40 hover:bg-gray-50">← Prev</button>
@@ -932,31 +1179,70 @@ export function RetentionPage() {
           <table className="w-full">
             <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
               <tr>
-                <th className={thClass} onClick={() => handleSort('accountid')}>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('full_name')}>Full Name <SortIcon col="full_name" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tasks</th>
-                <th className={thClassRight} onClick={() => handleSort('score')}>Score <SortIcon col="score" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('agent_name')}>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('client_qualification_date')}>Qual. Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('days_in_retention')}>Days in Ret. <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('trade_count')}>Trades <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('last_trade_date')}>Last Trade <SortIcon col="last_trade_date" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('days_from_last_trade')}>Days from Last Trade <SortIcon col="days_from_last_trade" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('deposit_count')}>Deposits <SortIcon col="deposit_count" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('total_deposit')}>Total Deposit <SortIcon col="total_deposit" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('balance')}>Balance <SortIcon col="balance" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('credit')}>Credit <SortIcon col="credit" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('equity')}>Equity <SortIcon col="equity" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('open_pnl')}>Open PNL <SortIcon col="open_pnl" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('live_equity')}>Live Equity <SortIcon col="live_equity" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('max_open_trade')}>Max Open Trade <SortIcon col="max_open_trade" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('max_volume')}>Max Volume <SortIcon col="max_volume" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClassRight} onClick={() => handleSort('turnover')}>Turnover <SortIcon col="turnover" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
-                <th className={thClass} onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('accountid')}>
+                  <span>Account ID <SortIcon col="accountid" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColTextFilter col="accountid" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[140px]" onClick={() => handleSort('full_name')}>
+                  <span>Full Name <SortIcon col="full_name" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColTextFilter col="full_name" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap align-top">Tasks</th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[90px]" onClick={() => handleSort('score')}>
+                  <span>Score <SortIcon col="score" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="score" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('agent_name')}>
+                  <span>Agent <SortIcon col="agent_name" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColTextFilter col="agent_name" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('sales_client_potential')}>Potential <SortIcon col="sales_client_potential" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('age')}>Age <SortIcon col="age" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[130px]" onClick={() => handleSort('client_qualification_date')}>
+                  <span>Qual. Date <SortIcon col="client_qualification_date" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColDateFilter col="client_qualification_date" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('days_in_retention')}>Days in Ret. <SortIcon col="days_in_retention" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('trade_count')}>Trades <SortIcon col="trade_count" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[130px]" onClick={() => handleSort('last_trade_date')}>
+                  <span>Last Trade <SortIcon col="last_trade_date" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColDateFilter col="last_trade_date" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('days_from_last_trade')}>Days from Last Trade <SortIcon col="days_from_last_trade" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('deposit_count')}>Deposits <SortIcon col="deposit_count" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('total_deposit')}>Total Deposit <SortIcon col="total_deposit" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('balance')}>
+                  <span>Balance <SortIcon col="balance" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="balance" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('credit')}>
+                  <span>Credit <SortIcon col="credit" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="credit" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('equity')}>
+                  <span>Equity <SortIcon col="equity" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="equity" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('open_pnl')}>Open PNL <SortIcon col="open_pnl" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('live_equity')}>
+                  <span>Live Equity <SortIcon col="live_equity" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="live_equity" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[120px]" onClick={() => handleSort('max_open_trade')}>
+                  <span>Max Open Trade <SortIcon col="max_open_trade" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="max_open_trade" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('max_volume')}>
+                  <span>Max Volume <SortIcon col="max_volume" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="max_volume" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top min-w-[110px]" onClick={() => handleSort('turnover')}>
+                  <span>Turnover <SortIcon col="turnover" sortBy={sortBy} sortDir={sortDir} /></span>
+                  <ColNumericFilter col="turnover" colFilters={colFilters} setColFilters={setColFilters} />
+                </th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('active')}>Active <SortIcon col="active" sortBy={sortBy} sortDir={sortDir} /></th>
+                <th className="px-4 pt-3 pb-1 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap align-top" onClick={() => handleSort('active_ftd')}>Active FTD <SortIcon col="active_ftd" sortBy={sortBy} sortDir={sortDir} /></th>
               </tr>
             </thead>
             <tbody>
