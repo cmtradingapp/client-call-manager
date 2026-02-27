@@ -12,6 +12,7 @@ class AntAcc(Base):
     is_test_account = Column(SmallInteger, nullable=True)
     sales_client_potential = Column(String(100), nullable=True)
     birth_date = Column(Date, nullable=True)
+    full_name = Column(String(400), nullable=True)
 
     __table_args__ = (
         Index("ix_ant_acc_modifiedtime", "modifiedtime"),

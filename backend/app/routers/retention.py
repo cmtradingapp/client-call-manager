@@ -27,6 +27,7 @@ _MV_ACTIVE_FTD = (
 
 _SORT_COLS = {
     "accountid": "m.accountid",
+    "full_name": "m.full_name",
     "client_qualification_date": "m.client_qualification_date",
     "days_in_retention": "(CURRENT_DATE - m.client_qualification_date)",
     "trade_count": "m.trade_count",
@@ -126,7 +127,7 @@ async def get_retention_clients(
         params: dict = {"activity_days": activity_days}
 
         if accountid:
-            where.append("m.accountid ILIKE :accountid_pattern")
+            where.append("(m.accountid ILIKE :accountid_pattern OR m.full_name ILIKE :accountid_pattern)")
             params["accountid_pattern"] = f"%{accountid}%"
 
         if qual_date_from:
@@ -263,6 +264,7 @@ async def get_retention_clients(
             text(f"""
                 SELECT
                     m.accountid,
+                    m.full_name,
                     m.client_qualification_date,
                     (CURRENT_DATE - m.client_qualification_date) AS days_in_retention,
                     m.trade_count,
@@ -407,6 +409,7 @@ async def get_retention_clients(
             "clients": [
                 {
                     "accountid": str(r["accountid"]),
+                    "full_name": r["full_name"] or "",
                     "client_qualification_date": r["client_qualification_date"].isoformat() if r["client_qualification_date"] else None,
                     "days_in_retention": int(r["days_in_retention"]) if r["days_in_retention"] is not None else None,
                     "trade_count": int(r["trade_count"]),
