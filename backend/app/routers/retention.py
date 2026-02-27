@@ -1,3 +1,5 @@
+import hashlib
+import time
 from datetime import date
 from typing import Any
 
@@ -13,6 +15,18 @@ from app.auth_deps import get_current_user
 from app.pg_database import get_db
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# COUNT cache: keyed by (where_clause_hash, params_hash) with 60s TTL.
+# Avoids a full MV scan on every page flip — the total rarely changes mid-session.
+# ---------------------------------------------------------------------------
+_count_cache: dict = {}  # key -> (count, expires_at)
+_COUNT_TTL = 60  # seconds
+
+
+def _cached_count_key(where_clause: str, params: dict) -> str:
+    raw = where_clause + repr(sorted(params.items()))
+    return hashlib.md5(raw.encode()).hexdigest()  # noqa: S324
 
 # active = had a trade (open_time) OR deposit in the last N days
 _MV_ACTIVE = (
@@ -458,11 +472,22 @@ async def get_retention_clients(
 
         where_clause = " AND ".join(where)
 
-        count_result = await db.execute(
-            text(f"SELECT COUNT(*) FROM retention_mv m LEFT JOIN client_scores cs ON cs.accountid = m.accountid WHERE {where_clause}"),
-            params,
-        )
-        total = count_result.scalar() or 0
+        _ck = _cached_count_key(where_clause, params)
+        _now = time.time()
+        if _ck in _count_cache and _count_cache[_ck][1] > _now:
+            total = _count_cache[_ck][0]
+        else:
+            count_result = await db.execute(
+                text(f"SELECT COUNT(*) FROM retention_mv m LEFT JOIN client_scores cs ON cs.accountid = m.accountid WHERE {where_clause}"),
+                params,
+            )
+            total = count_result.scalar() or 0
+            _count_cache[_ck] = (total, _now + _COUNT_TTL)
+            # Evict stale entries to prevent unbounded growth
+            if len(_count_cache) > 500:
+                _expired = [k for k, v in _count_cache.items() if v[1] <= _now]
+                for k in _expired:
+                    del _count_cache[k]
 
         _extra_sel = ""
         if _extra_col_names:
@@ -531,9 +556,13 @@ async def get_retention_clients(
         except Exception as pnl_err:
             logger.warning("Could not fetch open PNL from replica: %s", pnl_err)
 
-        # Look up pre-computed task assignments for this page (single indexed query)
+        # Evaluate retention tasks for this page using a single UNION ALL query.
+        # A CTE restricts the MV to the 50 page accounts first (index scan),
+        # so each task sub-query operates on 50 rows, not 24 000+.
         from sqlalchemy import select as _select
         from app.models.retention_task import RetentionTask
+        from app.routers.retention_tasks import _build_task_where
+        import json as _json
         tasks_map: dict = {str(r["accountid"]): [] for r in rows}
         try:
             page_aids = [str(r["accountid"]) for r in rows]
@@ -541,22 +570,46 @@ async def get_retention_clients(
                 all_tasks_result = await db.execute(
                     _select(RetentionTask).order_by(RetentionTask.id)
                 )
-                tasks_by_id = {t.id: t for t in all_tasks_result.scalars().all()}
-                if tasks_by_id:
-                    assign_result = await db.execute(
-                        text(
-                            "SELECT accountid, task_id FROM client_task_assignments "
-                            "WHERE accountid = ANY(:ids)"
-                        ),
-                        {"ids": page_aids},
-                    )
-                    for row in assign_result.fetchall():
-                        aid = str(row[0])
-                        task = tasks_by_id.get(row[1])
-                        if aid in tasks_map and task:
-                            tasks_map[aid].append({"name": task.name, "color": task.color or "grey"})
+                all_tasks = all_tasks_result.scalars().all()
+                if all_tasks:
+                    union_parts: list[str] = []
+                    combined_params: dict = {"_page_aids": page_aids}
+                    for tidx, task in enumerate(all_tasks):
+                        try:
+                            conditions = _json.loads(task.conditions)
+                        except Exception:
+                            continue
+                        t_where, t_params = _build_task_where(conditions)
+                        # Prefix each task's params to avoid name collisions across tasks
+                        prefixed = {f"t{tidx}_{k}": v for k, v in t_params.items()}
+                        combined_params.update(prefixed)
+                        # Replace :cond_N → :tTidx_cond_N in WHERE clauses
+                        prefixed_where = [
+                            w.replace(":cond_", f":t{tidx}_cond_")
+                            for w in t_where
+                        ]
+                        t_clause = " AND ".join(prefixed_where + ["p.accountid = ANY(:_page_aids)"])
+                        union_parts.append(
+                            f"SELECT p.accountid, {tidx}::int AS tidx "
+                            f"FROM page_accts p WHERE {t_clause}"
+                        )
+                    if union_parts:
+                        union_sql = " UNION ALL ".join(union_parts)
+                        t_result = await db.execute(
+                            text(
+                                "WITH page_accts AS ("
+                                "  SELECT * FROM retention_mv WHERE accountid = ANY(:_page_aids)"
+                                ") " + union_sql
+                            ),
+                            combined_params,
+                        )
+                        for tr in t_result.fetchall():
+                            aid = str(tr[0])
+                            task = all_tasks[tr[1]]
+                            if aid in tasks_map:
+                                tasks_map[aid].append({"name": task.name, "color": task.color or "grey"})
         except Exception as tasks_err:
-            logger.warning("Could not load task assignments for page: %s", tasks_err)
+            logger.warning("Could not evaluate retention tasks for page: %s", tasks_err)
 
         return {
             "total": total,
