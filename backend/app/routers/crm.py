@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth_deps import get_current_user
 from app.config import settings
+from app.models.audit_log import AuditLog
 from app.models.extension import Extension
 from app.pg_database import get_db
 
@@ -108,6 +109,33 @@ def _handle_crm_response(response: httpx.Response, context: str) -> dict:
     return data
 
 
+async def _log_audit(
+    db: AsyncSession,
+    agent_id: int,
+    agent_username: str,
+    client_account_id: str,
+    action_type: str,
+    action_value: str | None = None,
+) -> None:
+    """Insert a row into audit_log. Best-effort: logs a warning on failure."""
+    try:
+        entry = AuditLog(
+            agent_id=agent_id,
+            agent_username=agent_username,
+            client_account_id=client_account_id,
+            action_type=action_type,
+            action_value=action_value,
+        )
+        db.add(entry)
+        await db.commit()
+        logger.info(
+            "Audit logged: %s by %s (id=%d) on client %s",
+            action_type, agent_username, agent_id, client_account_id,
+        )
+    except Exception as exc:
+        logger.warning("Failed to write audit log: %s", exc)
+
+
 class RetentionStatusUpdate(BaseModel):
     status_key: int
 
@@ -117,7 +145,8 @@ async def update_retention_status(
     account_id: str,
     body: RetentionStatusUpdate,
     request: Request,
-    _: Any = Depends(get_current_user),
+    user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Proxy endpoint to update a client's retention status via the CRM API."""
     if body.status_key not in VALID_STATUS_KEYS:
@@ -148,6 +177,10 @@ async def update_retention_status(
             account_id,
             body.status_key,
         )
+        await _log_audit(
+            db, user.id, user.username, account_id,
+            "status_change", str(body.status_key),
+        )
         return {
             "success": True,
             "message": f"Retention status updated to {body.status_key} for account {account_id}",
@@ -174,7 +207,8 @@ async def add_client_note(
     account_id: str,
     body: AddNoteBody,
     request: Request,
-    _: Any = Depends(get_current_user),
+    user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Proxy endpoint to add a note for a client via the CRM API."""
     if not body.note or not body.note.strip():
@@ -194,6 +228,10 @@ async def add_client_note(
         _handle_crm_response(response, f"add_client_note({account_id})")
 
         logger.info("CRM API success: note added for account %s", account_id)
+        await _log_audit(
+            db, user.id, user.username, account_id,
+            "note_added", body.note.strip(),
+        )
         return {
             "success": True,
             "message": f"Note added for account {account_id}",
@@ -215,9 +253,15 @@ async def add_client_note(
 async def get_crm_user(
     account_id: str,
     request: Request,
-    _: Any = Depends(get_current_user),
+    log_whatsapp: bool = False,
+    user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Proxy endpoint to fetch CRM user details (including phone number)."""
+    """Proxy endpoint to fetch CRM user details (including phone number).
+
+    When the frontend opens WhatsApp, it passes ?log_whatsapp=true so the
+    backend can record the action in the audit log.
+    """
     crm_url = f"{settings.crm_api_base_url}/crm-api/user"
     params: dict[str, Any] = {"id": account_id}
 
@@ -237,6 +281,11 @@ async def get_crm_user(
             )
 
         logger.info("CRM API success: fetched user details for account %s", account_id)
+        if log_whatsapp:
+            await _log_audit(
+                db, user.id, user.username, account_id,
+                "whatsapp_opened", None,
+            )
         return result
     except HTTPException:
         raise
@@ -348,7 +397,7 @@ async def _get_client_phone(account_id: str, http_client: httpx.AsyncClient) -> 
 async def initiate_call(
     account_id: str,
     request: Request,
-    _: Any = Depends(get_current_user),
+    user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Initiate a SquareTalk call from the assigned agent's extension to the client's phone."""
@@ -398,6 +447,10 @@ async def initiate_call(
         logger.info(
             "SquareTalk call initiated: extension=%s -> destination=%s, response=%s",
             extension, destination, result,
+        )
+        await _log_audit(
+            db, user.id, user.username, account_id,
+            "call_initiated", extension,
         )
         return {
             "success": True,

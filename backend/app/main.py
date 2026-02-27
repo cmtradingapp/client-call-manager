@@ -22,6 +22,7 @@ from app.routers.auth import router as auth_router
 from app.routers.roles_admin import router as roles_router
 from app.routers.users_admin import router as users_router
 from app.routers.integrations_admin import router as integrations_router
+from app.routers.audit_log_admin import router as audit_log_router
 from app.seed import seed_admin
 
 logging.basicConfig(level=logging.INFO)
@@ -179,6 +180,32 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("integrations table migration applied")
+    # Migrate: ensure audit_log table exists
+    async with AsyncSessionLocal() as session:
+        await session.execute(_text(
+            "CREATE TABLE IF NOT EXISTS audit_log ("
+            "id SERIAL PRIMARY KEY, "
+            "agent_id INTEGER NOT NULL, "
+            "agent_username VARCHAR(64) NOT NULL, "
+            "client_account_id VARCHAR(64) NOT NULL, "
+            "action_type VARCHAR(32) NOT NULL, "
+            "action_value TEXT, "
+            "timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW())"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_agent_username ON audit_log (agent_username)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_client_account_id ON audit_log (client_account_id)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_action_type ON audit_log (action_type)"
+        ))
+        await session.execute(_text(
+            "CREATE INDEX IF NOT EXISTS ix_audit_log_timestamp ON audit_log (timestamp)"
+        ))
+        await session.commit()
+    logger.info("audit_log table migration applied")
     # Rebuild retention_mv using current extra columns config (must run after all table migrations)
     await rebuild_retention_mv()
     logger.info("retention_mv rebuilt with dynamic columns")
@@ -300,6 +327,7 @@ app.include_router(retention_tasks_router, prefix="/api")
 app.include_router(client_scoring_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
+app.include_router(audit_log_router, prefix="/api")
 
 
 @app.get("/health")
