@@ -17,6 +17,7 @@ import { AuditLogPage } from './pages/admin/AuditLogPage';
 import { IntegrationsPage } from './pages/admin/IntegrationsPage';
 import { RolesPage } from './pages/admin/RolesPage';
 import { UsersPage } from './pages/admin/UsersPage';
+import { ManagementDashboardPage } from './pages/reports/ManagementDashboardPage';
 
 interface NavSection {
   title: string;
@@ -43,6 +44,12 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Reports',
+    items: [
+      { to: '/reports/dashboard', label: 'Management Dashboard', permission: 'reports-dashboard' },
+    ],
+  },
+  {
     title: 'Administration',
     adminOnly: true,
     items: [
@@ -64,6 +71,7 @@ const ROUTES: { path: string; title: string; element: ReactNode; adminOnly?: boo
   { path: '/retention', title: 'Retention Manager', element: <RetentionPage />, permission: 'retention' },
   { path: '/retention-tasks', title: 'Retention Tasks', element: <RetentionTasksPage />, permission: 'retention-tasks' },
   { path: '/client-scoring', title: 'Client Scoring', element: <ClientScoringPage />, permission: 'client-scoring' },
+  { path: '/reports/dashboard', title: 'Management Dashboard', element: <ManagementDashboardPage />, permission: 'reports-dashboard' },
   { path: '/admin/users', title: 'Users', element: <UsersPage />, adminOnly: true },
   { path: '/admin/roles', title: 'Roles', element: <RolesPage />, adminOnly: true },
   { path: '/admin/etl', title: 'Data Sync', element: <ETLPage />, adminOnly: true },
