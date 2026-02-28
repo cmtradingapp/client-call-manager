@@ -17,6 +17,7 @@ const PAGE_LABELS: Record<string, string> = {
   'retention': 'Retention Manager',
   'retention-tasks': 'Retention Tasks',
   'client-scoring': 'Client Scoring',
+  'reports-dashboard': 'Management Dashboard',
 };
 
 interface Role {

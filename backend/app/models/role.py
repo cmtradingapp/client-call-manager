@@ -13,6 +13,7 @@ ALL_PAGES = [
     "retention",
     "retention-tasks",
     "client-scoring",
+    "reports-dashboard",
 ]
 
 
