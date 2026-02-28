@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -261,9 +262,35 @@ async def lifespan(app: FastAPI):
         ))
         await session.commit()
     logger.info("open_pnl_cache table migration applied")
-    # Rebuild retention_mv using current extra columns config (must run after all table migrations)
-    await rebuild_retention_mv()
-    logger.info("retention_mv rebuilt with dynamic columns")
+
+    # Start retention_mv initialisation in the background so the server becomes
+    # ready immediately.  On subsequent restarts (MV already populated) this
+    # runs a fast CONCURRENT refresh; on first boot it does the full rebuild.
+    async def _startup_mv_init() -> None:
+        try:
+            from app.pg_database import AsyncSessionLocal as _ASL, engine as _eng
+            from sqlalchemy import text as _t
+            async with _ASL() as _s:
+                row = await _s.execute(_t(
+                    "SELECT ispopulated FROM pg_matviews WHERE matviewname = 'retention_mv'"
+                ))
+                mv_row = row.fetchone()
+
+            if mv_row is not None:
+                # MV already exists — just refresh without dropping
+                logger.info("retention_mv exists — running background refresh (no rebuild)")
+                await refresh_retention_mv()
+                logger.info("retention_mv background refresh complete")
+            else:
+                # First boot or MV was dropped — full rebuild required
+                logger.info("retention_mv missing — running full background rebuild")
+                await rebuild_retention_mv()
+                logger.info("retention_mv background rebuild complete")
+        except Exception as _mv_err:
+            logger.error("retention_mv background init failed: %s", _mv_err)
+
+    asyncio.create_task(_startup_mv_init())
+    logger.info("retention_mv initialisation started in background — server is ready")
     # Tune PostgreSQL — must run outside a transaction (AUTOCOMMIT)
     try:
         from app.pg_database import engine as _pg_engine
